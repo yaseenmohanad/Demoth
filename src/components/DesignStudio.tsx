@@ -221,6 +221,7 @@ export default function DesignStudio() {
   const [bgRemovingId, setBgRemovingId] = useState<string | null>(null);
   const [showShapes, setShowShapes] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   /**
    * Context menu state. `elementId` is the right-clicked element when one
    * was hit, or null when the user right-clicked an empty area of the
@@ -815,10 +816,10 @@ export default function DesignStudio() {
   }
 
   function onCanvasContextMenu(e: ReactMouseEvent<SVGSVGElement>) {
-    // Only handle right-clicks on truly empty canvas (target === svg).
-    // Right-clicks on elements already fire `onElementContextMenu` and
-    // stop propagation, so they won't reach here.
-    if (e.target !== svgRef.current) return;
+    // This fires for right-clicks anywhere on the canvas that *didn't* hit
+    // an element (those call onElementContextMenu and stop propagation
+    // first). So the target here is either the svg itself, the garment
+    // path, or a wrapper <g> — all of which we treat as "empty canvas".
     e.preventDefault();
     const { x: sx, y: sy } = clientToSvg(e.clientX, e.clientY);
     setContextMenu({
@@ -1023,6 +1024,16 @@ export default function DesignStudio() {
             className="grid h-9 w-9 place-items-center rounded-lg text-[var(--muted)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--background)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <RedoIcon size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowClearAllConfirm(true)}
+            disabled={design.elements.length === 0}
+            aria-label="Clear all"
+            title="Clear all elements"
+            className="grid h-9 w-9 place-items-center rounded-lg text-[var(--muted)] ring-1 ring-[var(--border)] transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <TrashIcon size={18} />
           </button>
           <button
             onClick={handleSave}
@@ -1424,6 +1435,29 @@ export default function DesignStudio() {
           router.push("/profile");
         }}
         onCancel={() => setShowDeleteConfirm(false)}
+      />
+
+      {/* Clear-all confirmation */}
+      <ConfirmDialog
+        open={showClearAllConfirm}
+        title="Clear all elements?"
+        message={
+          <>
+            This removes <strong>every</strong> image, text, drawing, and
+            shape from this design. The shirt itself stays. You can press
+            <strong> Undo</strong> right after to bring them back.
+          </>
+        }
+        confirmLabel="Yes, clear all"
+        cancelLabel="No, keep them"
+        destructive
+        onConfirm={() => {
+          pushHistory();
+          setDesign((d) => ({ ...d, elements: [] }));
+          setSelectedId(null);
+          setShowClearAllConfirm(false);
+        }}
+        onCancel={() => setShowClearAllConfirm(false)}
       />
     </div>
   );
