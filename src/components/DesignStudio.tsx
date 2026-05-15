@@ -87,11 +87,21 @@ async function removeImageBackground(srcDataUrl: string): Promise<string> {
  * The data URL is portable (works offline, persists in localStorage) and
  * sized to {@link MAX_IMAGE_DIM} on its longest side to keep storage small.
  */
+/**
+ * Bump this if we ever need to invalidate every browser's cached copy of
+ * the image proxy (e.g. after fixing a bug that served wrong bytes).
+ * Tacked onto every proxy URL as a query param the server ignores —
+ * browsers treat it as a different URL and re-fetch.
+ */
+const IMAGE_PROXY_VERSION = "2";
+
 async function imageUrlToDataUrl(
   url: string,
   maxDim = MAX_IMAGE_DIM
 ): Promise<string> {
-  const proxied = `/api/image-proxy?url=${encodeURIComponent(url)}`;
+  const proxied = `/api/image-proxy?url=${encodeURIComponent(
+    url
+  )}&v=${IMAGE_PROXY_VERSION}`;
   const res = await fetch(proxied);
   if (!res.ok) {
     let detail = `${res.status}`;
@@ -2571,7 +2581,9 @@ function WebSearchModal({
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={`/api/image-proxy?url=${encodeURIComponent(r.thumb)}`}
+                      src={`/api/image-proxy?url=${encodeURIComponent(
+                        r.thumb
+                      )}&v=${IMAGE_PROXY_VERSION}`}
                       alt={r.title || "result"}
                       className="h-full w-full object-cover transition-transform group-hover:scale-105"
                       loading="lazy"
