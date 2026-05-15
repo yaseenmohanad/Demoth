@@ -25,10 +25,13 @@ export function HomeIcon({ size = 24, ...p }: IconProps) {
 }
 
 export function BrushIcon({ size = 24, ...p }: IconProps) {
+  // Clean pencil silhouette: diagonal body, eraser/ferrule band near the
+  // top, sharp tip at the bottom-left. Reads correctly at small sizes
+  // (down to ~18px).
   return (
     <svg {...base(size, p)}>
-      <path d="M14 4 20 10 9 21H3v-6Z" />
-      <path d="M14 4 17 1l4 4-3 3" />
+      <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+      <path d="m15 5 4 4" />
     </svg>
   );
 }
