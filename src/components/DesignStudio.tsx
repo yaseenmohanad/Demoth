@@ -221,11 +221,22 @@ export default function DesignStudio() {
   const [bgRemovingId, setBgRemovingId] = useState<string | null>(null);
   const [showShapes, setShowShapes] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  /**
+   * Context menu state. `elementId` is the right-clicked element when one
+   * was hit, or null when the user right-clicked an empty area of the
+   * canvas — in which case Paste places the clipboard at (svgX, svgY).
+   */
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    elementId: string;
+    elementId: string | null;
+    svgX: number;
+    svgY: number;
   } | null>(null);
+
+  /** Last copied element (JSON snapshot). Lives for the session — refreshing
+   * the page clears it. */
+  const [clipboard, setClipboard] = useState<DesignElement | null>(null);
 
   // Undo/redo history. We snapshot the design as a JSON string before each
   // discrete user action; redo stores forward states until a new edit is made.
@@ -793,7 +804,64 @@ export default function DesignStudio() {
     e.preventDefault();
     e.stopPropagation();
     setSelectedId(el.id);
-    setContextMenu({ x: e.clientX, y: e.clientY, elementId: el.id });
+    const { x: sx, y: sy } = clientToSvg(e.clientX, e.clientY);
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      elementId: el.id,
+      svgX: sx,
+      svgY: sy,
+    });
+  }
+
+  function onCanvasContextMenu(e: ReactMouseEvent<SVGSVGElement>) {
+    // Only handle right-clicks on truly empty canvas (target === svg).
+    // Right-clicks on elements already fire `onElementContextMenu` and
+    // stop propagation, so they won't reach here.
+    if (e.target !== svgRef.current) return;
+    e.preventDefault();
+    const { x: sx, y: sy } = clientToSvg(e.clientX, e.clientY);
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      elementId: null,
+      svgX: sx,
+      svgY: sy,
+    });
+  }
+
+  // ---- clipboard ----
+  /** Copy the given element to the in-memory clipboard. */
+  function copyElement(id: string) {
+    const el = design.elements.find((e) => e.id === id);
+    if (!el) return;
+    setClipboard(JSON.parse(JSON.stringify(el)) as DesignElement);
+  }
+
+  /**
+   * Paste the clipboard at (cx, cy). If `replaceId` is given the target
+   * element is replaced by the pasted one (its z-position is preserved);
+   * otherwise the pasted element is appended on top.
+   */
+  function pasteClipboard(cx: number, cy: number, replaceId?: string | null) {
+    if (!clipboard) return;
+    pushHistory();
+    const fresh = {
+      ...(JSON.parse(JSON.stringify(clipboard)) as DesignElement),
+      id: makeId(),
+      x: cx,
+      y: cy,
+    } as DesignElement;
+    setDesign((d) => {
+      if (replaceId) {
+        return {
+          ...d,
+          elements: d.elements.map((e) => (e.id === replaceId ? fresh : e)),
+        };
+      }
+      return { ...d, elements: [...d.elements, fresh] };
+    });
+    setSelectedId(fresh.id);
   }
 
   function onElementPointerDown(
@@ -1013,6 +1081,7 @@ export default function DesignStudio() {
           onPointerMove={onCanvasPointerMove}
           onPointerUp={onCanvasPointerUp}
           onPointerCancel={onCanvasPointerUp}
+          onContextMenu={onCanvasContextMenu}
         >
           <defs>
             <clipPath id={clipId}>
@@ -1267,18 +1336,44 @@ export default function DesignStudio() {
       )}
 
       {/* Right-click context menu */}
-      {contextMenu && selected && (
+      {contextMenu && (
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          element={selected}
+          element={
+            contextMenu.elementId
+              ? design.elements.find((e) => e.id === contextMenu.elementId) ?? null
+              : null
+          }
           design={design}
+          hasClipboard={!!clipboard}
+          clipboardLabel={clipboardLabel(clipboard)}
           onClose={() => setContextMenu(null)}
-          onFlip={(axis) => flipElement(contextMenu.elementId, axis)}
-          onBringToFront={() => bringToFront(contextMenu.elementId)}
-          onBringForward={() => bringForward(contextMenu.elementId)}
-          onSendBackward={() => sendBackward(contextMenu.elementId)}
-          onSendToBack={() => sendToBack(contextMenu.elementId)}
+          onCopy={() => {
+            if (contextMenu.elementId) copyElement(contextMenu.elementId);
+          }}
+          onPaste={() =>
+            pasteClipboard(
+              contextMenu.svgX,
+              contextMenu.svgY,
+              contextMenu.elementId
+            )
+          }
+          onFlip={(axis) => {
+            if (contextMenu.elementId) flipElement(contextMenu.elementId, axis);
+          }}
+          onBringToFront={() => {
+            if (contextMenu.elementId) bringToFront(contextMenu.elementId);
+          }}
+          onBringForward={() => {
+            if (contextMenu.elementId) bringForward(contextMenu.elementId);
+          }}
+          onSendBackward={() => {
+            if (contextMenu.elementId) sendBackward(contextMenu.elementId);
+          }}
+          onSendToBack={() => {
+            if (contextMenu.elementId) sendToBack(contextMenu.elementId);
+          }}
         />
       )}
 
@@ -1334,12 +1429,23 @@ export default function DesignStudio() {
   );
 }
 
+/** Short label like "image" / "text" / "shape" / "drawing" for menu hints. */
+function clipboardLabel(el: DesignElement | null): string {
+  if (!el) return "";
+  if (el.type === "stroke") return "drawing";
+  return el.type;
+}
+
 function ContextMenu({
   x,
   y,
   element,
   design,
+  hasClipboard,
+  clipboardLabel: clipLabel,
   onClose,
+  onCopy,
+  onPaste,
   onFlip,
   onBringToFront,
   onBringForward,
@@ -1348,9 +1454,14 @@ function ContextMenu({
 }: {
   x: number;
   y: number;
-  element: DesignElement;
+  /** The element that was right-clicked, or null for a canvas-blank click. */
+  element: DesignElement | null;
   design: Design;
+  hasClipboard: boolean;
+  clipboardLabel: string;
   onClose: () => void;
+  onCopy: () => void;
+  onPaste: () => void;
   onFlip: (axis: "x" | "y") => void;
   onBringToFront: () => void;
   onBringForward: () => void;
@@ -1377,27 +1488,59 @@ function ContextMenu({
 
   // Clamp to viewport so we don't render off-screen
   const clampedX = Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 9999) - 220);
-  const clampedY = Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 9999) - 280);
-
-  const idx = design.elements.findIndex((e) => e.id === element.id);
-  const total = design.elements.length;
-  const isFrontmost = idx === total - 1;
-  const isBackmost = idx === 0;
+  const clampedY = Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 9999) - 320);
 
   function run(fn: () => void) {
     fn();
     onClose();
   }
 
+  // ---- Empty-canvas variant: just a Paste option ----
+  if (!element) {
+    return (
+      <div
+        data-context-menu
+        role="menu"
+        className="fixed z-[60] min-w-[200px] overflow-hidden rounded-xl bg-white py-1 text-sm shadow-xl ring-1 ring-[var(--border)]"
+        style={{ left: clampedX, top: clampedY }}
+        onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <MenuItem
+          onClick={() => run(onPaste)}
+          disabled={!hasClipboard}
+          hint={hasClipboard ? `Place a ${clipLabel}` : "Nothing copied"}
+        >
+          📋 Paste
+        </MenuItem>
+      </div>
+    );
+  }
+
+  // ---- Element variant: copy, paste-to-replace, flip, z-order ----
+  const idx = design.elements.findIndex((e) => e.id === element.id);
+  const total = design.elements.length;
+  const isFrontmost = idx === total - 1;
+  const isBackmost = idx === 0;
+
   return (
     <div
       data-context-menu
       role="menu"
-      className="fixed z-[60] min-w-[200px] overflow-hidden rounded-xl bg-white py-1 text-sm shadow-xl ring-1 ring-[var(--border)]"
+      className="fixed z-[60] min-w-[220px] overflow-hidden rounded-xl bg-white py-1 text-sm shadow-xl ring-1 ring-[var(--border)]"
       style={{ left: clampedX, top: clampedY }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
+      <MenuItem onClick={() => run(onCopy)}>📄 Copy</MenuItem>
+      <MenuItem
+        onClick={() => run(onPaste)}
+        disabled={!hasClipboard}
+        hint={hasClipboard ? "Replace with copy" : "Nothing copied"}
+      >
+        📋 Paste
+      </MenuItem>
+      <div className="my-1 border-t border-[var(--border)]" />
       <MenuItem onClick={() => run(() => onFlip("y"))}>
         ↕ Flip vertically
       </MenuItem>
