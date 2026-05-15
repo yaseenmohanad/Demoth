@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HomeIcon, BrushIcon, TruckIcon, UserIcon } from "./Icons";
+import {
+  HomeIcon,
+  BrushIcon,
+  TruckIcon,
+  UserIcon,
+  StorefrontIcon,
+} from "./Icons";
 import Avatar from "./Avatar";
 import { useAppState, useHydrated } from "@/lib/store";
 
@@ -10,6 +16,7 @@ const items = [
   { href: "/", label: "Home", Icon: HomeIcon, match: (p: string) => p === "/" },
   { href: "/design", label: "Design", Icon: BrushIcon, match: (p: string) => p.startsWith("/design") },
   { href: "/deliveries", label: "Deliveries", Icon: TruckIcon, match: (p: string) => p.startsWith("/deliveries") },
+  { href: "/other-designs", label: "Browse", Icon: StorefrontIcon, match: (p: string) => p.startsWith("/other-designs") },
   { href: "/profile", label: "Profile", Icon: UserIcon, match: (p: string) => p.startsWith("/profile") },
 ];
 

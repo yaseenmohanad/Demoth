@@ -9,7 +9,8 @@ import DesignPreview from "@/components/DesignPreview";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Avatar from "@/components/Avatar";
 import AvatarCropModal from "@/components/AvatarCropModal";
-import { TrashIcon, UploadIcon } from "@/components/Icons";
+import PremiumModal from "@/components/PremiumModal";
+import { TrashIcon, UploadIcon, SparkleIcon } from "@/components/Icons";
 
 /** Read a File as a data URL so we can hand it to the avatar crop modal. */
 function fileToDataUrl(file: File): Promise<string> {
@@ -32,6 +33,7 @@ export default function ProfilePage() {
   const [avatarError, setAvatarError] = useState<string | null>(null);
   /** Original (un-cropped) image data URL while the crop modal is open. */
   const [pendingAvatarSrc, setPendingAvatarSrc] = useState<string | null>(null);
+  const [premiumOpen, setPremiumOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   async function onAvatarFileChosen(e: ChangeEvent<HTMLInputElement>) {
@@ -131,6 +133,72 @@ export default function ProfilePage() {
         )}
       </section>
 
+      {/* Premium / Settings */}
+      {hydrated && !profile.premium && (
+        <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-amber-50 via-fuchsia-50 to-violet-50 p-5 shadow-sm ring-1 ring-[var(--border)]">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-fuchsia-500 text-white shadow">
+              <SparkleIcon size={20} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
+                Demoth Premium
+              </p>
+              <p className="text-sm font-bold">Unlock the marketplace & auto-correct</p>
+            </div>
+            <button
+              onClick={() => setPremiumOpen(true)}
+              className="shrink-0 rounded-xl bg-gradient-to-r from-amber-400 via-fuchsia-500 to-violet-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:scale-[1.02]"
+            >
+              Get Premium
+            </button>
+          </div>
+        </section>
+      )}
+
+      {hydrated && profile.premium && (
+        <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--border)]">
+          <div className="flex items-center gap-2">
+            <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-fuchsia-500 text-white">
+              <SparkleIcon size={14} />
+            </span>
+            <p className="text-sm font-bold">Premium settings</p>
+            <span className="ml-auto rounded-full bg-gradient-to-r from-amber-400 to-fuchsia-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white">
+              Active
+            </span>
+          </div>
+
+          <label className="flex cursor-pointer items-center gap-3 rounded-2xl bg-[var(--background)] p-3 ring-1 ring-[var(--border)]">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-[var(--primary)]"
+              checked={profile.autoCorrect ?? true}
+              onChange={(e) =>
+                updateProfile({ autoCorrect: e.target.checked })
+              }
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">Auto-correct</span>
+              <span className="block text-[11px] text-[var(--muted)]">
+                Fix common typos while you type and smooth out hand-drawn
+                strokes when you finish drawing.
+              </span>
+            </span>
+          </label>
+
+          <button
+            onClick={() => {
+              if (confirm("Turn premium off? You can re-activate any time.")) {
+                updateProfile({ premium: false });
+              }
+            }}
+            className="text-xs text-[var(--muted)] hover:text-red-600"
+          >
+            Turn premium off
+          </button>
+        </section>
+      )}
+
       {/* Designs */}
       <section>
         <div className="mb-3 flex items-center justify-between">
@@ -225,6 +293,11 @@ export default function ProfilePage() {
           }}
         />
       )}
+
+      <PremiumModal
+        open={premiumOpen}
+        onClose={() => setPremiumOpen(false)}
+      />
     </div>
   );
 }

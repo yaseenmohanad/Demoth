@@ -98,6 +98,12 @@ export interface Profile {
   description: string;
   /** Optional profile picture as a data URL (downscaled before saving). */
   avatar?: string;
+  /** Whether the user has activated premium (gives access to the
+   *  marketplace, auto-correct, friend lists, cross-edits). */
+  premium?: boolean;
+  /** When premium is active, auto-correct text typing and smooth
+   *  drawings on stroke release. Toggleable in Settings. */
+  autoCorrect?: boolean;
 }
 
 export type DeliveryStatus = "pending" | "shipped" | "delivered" | "cancelled";

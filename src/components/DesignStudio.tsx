@@ -13,7 +13,9 @@ import {
   getDesign,
   makeId,
   useHydrated,
+  useAppState,
 } from "@/lib/store";
+import { autoCorrectOnInput } from "@/lib/auto-correct";
 import type {
   Design,
   DesignElement,
@@ -71,6 +73,80 @@ interface BingResult {
  * bloated for users who never use this feature; the underlying ONNX model
  * (~30 MB) is fetched on first use and cached in the browser.
  */
+/**
+ * Clean a freehand stroke (premium auto-correct). Two passes:
+ *   1. Ramer–Douglas–Peucker simplification removes jittery near-collinear
+ *      points so the path has fewer, more meaningful vertices.
+ *   2. A 3-point running average smooths the kinks the user couldn't
+ *      avoid while holding a finger or a mouse.
+ */
+function smoothStrokePoints(
+  points: Array<{ x: number; y: number }>
+): Array<{ x: number; y: number }> {
+  if (points.length < 3) return points;
+  // ---- simplify (RDP) ----
+  const epsilon = 1.4;
+  const simplified = rdp(points, epsilon);
+  if (simplified.length < 3) return simplified;
+  // ---- smooth (3-point average, keep endpoints) ----
+  const out: Array<{ x: number; y: number }> = [simplified[0]];
+  for (let i = 1; i < simplified.length - 1; i++) {
+    const a = simplified[i - 1];
+    const b = simplified[i];
+    const c = simplified[i + 1];
+    out.push({ x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3 });
+  }
+  out.push(simplified[simplified.length - 1]);
+  return out;
+}
+
+/** Ramer–Douglas–Peucker — drop points that are within `epsilon` of the
+ *  straight line between their neighbours. */
+function rdp(
+  pts: Array<{ x: number; y: number }>,
+  epsilon: number
+): Array<{ x: number; y: number }> {
+  if (pts.length < 3) return pts.slice();
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  let maxDist = -1;
+  let idx = -1;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = perpDist(pts[i], first, last);
+    if (d > maxDist) {
+      maxDist = d;
+      idx = i;
+    }
+  }
+  if (maxDist > epsilon && idx > 0) {
+    const left = rdp(pts.slice(0, idx + 1), epsilon);
+    const right = rdp(pts.slice(idx), epsilon);
+    return left.slice(0, -1).concat(right);
+  }
+  return [first, last];
+}
+
+function perpDist(
+  p: { x: number; y: number },
+  a: { x: number; y: number },
+  b: { x: number; y: number }
+): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) {
+    const ddx = p.x - a.x;
+    const ddy = p.y - a.y;
+    return Math.sqrt(ddx * ddx + ddy * ddy);
+  }
+  const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+  const projX = a.x + t * dx;
+  const projY = a.y + t * dy;
+  const ddx = p.x - projX;
+  const ddy = p.y - projY;
+  return Math.sqrt(ddx * ddx + ddy * ddy);
+}
+
 async function removeImageBackground(srcDataUrl: string): Promise<string> {
   const { removeBackground } = await import("@imgly/background-removal");
   const blob = await removeBackground(srcDataUrl);
@@ -200,8 +276,13 @@ export default function DesignStudio() {
   const router = useRouter();
   const params = useSearchParams();
   const hydrated = useHydrated();
+  const { profile } = useAppState();
   const idParam = params.get("id");
   const clipId = `studio-clip-${useId().replace(/:/g, "")}`;
+  // Premium-gated auto-correct (text + stroke smoothing). Defaults on
+  // when premium is active; user can toggle off in profile settings.
+  const autoCorrectActive =
+    !!profile.premium && (profile.autoCorrect ?? true);
 
   const [design, setDesign] = useState<Design>(() => newDraft());
   const [garmentChosen, setGarmentChosen] = useState(false);
@@ -894,6 +975,35 @@ export default function DesignStudio() {
       cancelLongPress();
     }
     if (drawRef.current && drawRef.current.pointerId === e.pointerId) {
+      // If premium auto-correct is on, simplify+smooth the just-drawn
+      // stroke so it doesn't look jittery.
+      if (autoCorrectActive && drawRef.current.points.length >= 4) {
+        const smoothed = smoothStrokePoints(drawRef.current.points);
+        if (smoothed.length >= 2) {
+          const d =
+            "M " +
+            smoothed
+              .map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+              .join(" L ");
+          let minX = Infinity,
+            maxX = -Infinity,
+            minY = Infinity,
+            maxY = -Infinity;
+          for (const p of smoothed) {
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+          }
+          patchElement(drawRef.current.pathId, {
+            d,
+            x: (minX + maxX) / 2,
+            y: (minY + maxY) / 2,
+            w: maxX - minX,
+            h: maxY - minY,
+          } as Partial<DesignElement>);
+        }
+      }
       drawRef.current = null;
     }
     if (dragRef.current && dragRef.current.pointerId === e.pointerId) {
@@ -1325,6 +1435,7 @@ export default function DesignStudio() {
       {selected && (
         <ElementControls
           element={selected}
+          autoCorrect={autoCorrectActive}
           onPatch={(id, patch) =>
             patchElement(id, patch, { commit: true })
           }
@@ -2306,12 +2417,14 @@ function GarmentPicker({ onPick }: { onPick: (g: GarmentType) => void }) {
 
 function ElementControls({
   element,
+  autoCorrect,
   onPatch,
   onDelete,
   bgRemovingId,
   onRemoveBackground,
 }: {
   element: DesignElement;
+  autoCorrect: boolean;
   onPatch: (id: string, patch: Partial<DesignElement>) => void;
   onDelete: (id: string) => void;
   bgRemovingId: string | null;
@@ -2334,7 +2447,16 @@ function ElementControls({
         </div>
         <input
           value={element.text}
-          onChange={(e) => onPatch(element.id, { text: e.target.value })}
+          onChange={(e) => {
+            // When auto-correct is on (premium), look at the just-typed
+            // character to maybe replace the word before it. Native
+            // spellCheck below still gives the user red underlines.
+            const next = autoCorrect
+              ? autoCorrectOnInput(element.text, e.target.value)
+              : e.target.value;
+            onPatch(element.id, { text: next });
+          }}
+          spellCheck
           maxLength={60}
           className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-soft)]"
           placeholder="Type your text…"

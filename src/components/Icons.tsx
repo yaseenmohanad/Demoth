@@ -222,3 +222,23 @@ export function EyeIcon({ size = 24, ...p }: IconProps) {
     </svg>
   );
 }
+
+export function StorefrontIcon({ size = 24, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="M3 9 5 4h14l2 5" />
+      <path d="M3 9v11h18V9" />
+      <path d="M3 9c0 2 2 3 4 3s4-1 4-3" />
+      <path d="M11 9c0 2 2 3 4 3s4-1 4-3" />
+      <path d="M9 20v-6h6v6" />
+    </svg>
+  );
+}
+
+export function SparkleIcon({ size = 24, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" />
+    </svg>
+  );
+}
