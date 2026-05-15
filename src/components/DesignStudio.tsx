@@ -291,12 +291,86 @@ export default function DesignStudio() {
     startY: number;
     origX: number;
     origY: number;
+    /** Whether we've already pushed an undo snapshot for this drag.
+     *  We defer it to the first real movement so a long-press that
+     *  becomes a context-menu open doesn't leave a spurious history
+     *  entry behind. */
+    historyPushed: boolean;
   } | null>(null);
   const drawRef = useRef<{
     pointerId: number;
     points: { x: number; y: number }[];
     pathId: string;
   } | null>(null);
+
+  /**
+   * Long-press detection for touch devices (mobile/tablet). Since touch
+   * input has no concept of right-click, holding a finger on an element
+   * — or on empty canvas — for ~500ms opens the same context menu that
+   * right-click does on desktop. The timer is cancelled if the user lifts
+   * or starts moving (which means they wanted to tap or drag instead).
+   */
+  const LONG_PRESS_MS = 500;
+  const LONG_PRESS_MOVE_THRESHOLD = 10; // screen px
+  const longPressRef = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    pointerId: number;
+    elementId: string | null; // null = empty canvas
+    startClientX: number;
+    startClientY: number;
+  } | null>(null);
+
+  function cancelLongPress() {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current.timer);
+      longPressRef.current = null;
+    }
+  }
+
+  /** Start a long-press watch for the given pointer event. */
+  function armLongPress(
+    e: ReactPointerEvent<SVGElement>,
+    elementId: string | null
+  ) {
+    if (e.pointerType !== "touch") return; // mouse/pen still use right-click
+    cancelLongPress();
+    const startClientX = e.clientX;
+    const startClientY = e.clientY;
+    const pointerId = e.pointerId;
+    longPressRef.current = {
+      pointerId,
+      elementId,
+      startClientX,
+      startClientY,
+      timer: setTimeout(() => {
+        // Long-press fired. Cancel any drag/pan that may have been queued
+        // and open the context menu where the finger is.
+        if (
+          dragRef.current &&
+          dragRef.current.pointerId === pointerId
+        ) {
+          dragRef.current = null;
+        }
+        if (panRef.current && panRef.current.pointerId === pointerId) {
+          panRef.current = null;
+        }
+        const { x: sx, y: sy } = clientToSvg(startClientX, startClientY);
+        setContextMenu({
+          x: startClientX,
+          y: startClientY,
+          elementId,
+          svgX: sx,
+          svgY: sy,
+        });
+        // A tiny haptic buzz signals "menu opened" the same way most
+        // mobile platforms cue a long-press.
+        if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+          navigator.vibrate?.(15);
+        }
+        longPressRef.current = null;
+      }, LONG_PRESS_MS),
+    };
+  }
 
   /** Push the current design onto the history stack (for undo). */
   function pushHistory() {
@@ -411,6 +485,13 @@ export default function DesignStudio() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
+
+  // Make sure any pending long-press timer dies with the component so it
+  // can't fire against stale state.
+  useEffect(() => {
+    return () => cancelLongPress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selected = useMemo(
     () => design.elements.find((e) => e.id === selectedId) ?? null,
@@ -650,11 +731,26 @@ export default function DesignStudio() {
           moved: false,
         };
         (e.target as Element).setPointerCapture(e.pointerId);
+        // Long-press on empty canvas → open the "paste here" context menu
+        // at the touch position.
+        armLongPress(e, null);
       }
     }
   }
 
   function onCanvasPointerMove(e: ReactPointerEvent<SVGSVGElement>) {
+    // If we're tracking a long-press and the finger has moved enough, the
+    // user is dragging instead — cancel the timer so it doesn't fire.
+    if (
+      longPressRef.current &&
+      longPressRef.current.pointerId === e.pointerId
+    ) {
+      const dx = e.clientX - longPressRef.current.startClientX;
+      const dy = e.clientY - longPressRef.current.startClientY;
+      if (Math.abs(dx) + Math.abs(dy) > LONG_PRESS_MOVE_THRESHOLD) {
+        cancelLongPress();
+      }
+    }
     // panning the canvas (drag on empty space)
     if (panRef.current && panRef.current.pointerId === e.pointerId) {
       const dxScreen = e.clientX - panRef.current.startClientX;
@@ -777,6 +873,13 @@ export default function DesignStudio() {
       const { x, y } = clientToSvg(e.clientX, e.clientY);
       const dx = x - dragRef.current.startX;
       const dy = y - dragRef.current.startY;
+      // Commit a single history entry on the first real move so undo
+      // walks back the whole drag in one step (and a long-press that
+      // never moves leaves history untouched).
+      if (!dragRef.current.historyPushed && (dx !== 0 || dy !== 0)) {
+        pushHistory();
+        dragRef.current.historyPushed = true;
+      }
       patchElement(dragRef.current.elementId, {
         x: dragRef.current.origX + dx,
         y: dragRef.current.origY + dy,
@@ -785,6 +888,14 @@ export default function DesignStudio() {
   }
 
   function onCanvasPointerUp(e: ReactPointerEvent<SVGSVGElement>) {
+    // If the finger lifts before the long-press timer fires, cancel it —
+    // the user tapped or short-dragged.
+    if (
+      longPressRef.current &&
+      longPressRef.current.pointerId === e.pointerId
+    ) {
+      cancelLongPress();
+    }
     if (drawRef.current && drawRef.current.pointerId === e.pointerId) {
       drawRef.current = null;
     }
@@ -883,7 +994,6 @@ export default function DesignStudio() {
     e.stopPropagation();
     setSelectedId(el.id);
     const { x, y } = clientToSvg(e.clientX, e.clientY);
-    pushHistory(); // single snapshot for the whole drag
     dragRef.current = {
       elementId: el.id,
       pointerId: e.pointerId,
@@ -891,8 +1001,13 @@ export default function DesignStudio() {
       startY: y,
       origX: el.x,
       origY: el.y,
+      // pushHistory is deferred until the user actually moves — see
+      // onCanvasPointerMove. This way a long-press that opens the
+      // context menu instead of dragging doesn't dirty history.
+      historyPushed: false,
     };
     (e.target as Element).setPointerCapture(e.pointerId);
+    armLongPress(e, el.id);
   }
 
   // ---- resize handles ----
