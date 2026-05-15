@@ -330,7 +330,15 @@ async function handle(
   return new NextResponse(buf, {
     headers: {
       "Content-Type": contentType,
-      "Cache-Control": "public, max-age=86400",
+      // `private` keeps the response in the user's browser cache (so the
+      // same thumbnail loads instantly on repeat) but tells shared caches
+      // — Netlify's edge specifically — to skip it. Netlify's edge was
+      // caching by path only, ignoring the ?url= query, so every request
+      // returned whatever image was first cached. The explicit Netlify /
+      // CDN variants below belt-and-braces that.
+      "Cache-Control": "private, max-age=86400",
+      "Netlify-CDN-Cache-Control": "no-store",
+      "CDN-Cache-Control": "no-store",
     },
   });
 }
