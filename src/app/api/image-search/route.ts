@@ -65,7 +65,8 @@ export async function GET(request: Request) {
   }
 
   const images: BingResult[] = [];
-  const seen = new Set<string>();
+  const seenMurl = new Set<string>();
+  const seenTurl = new Set<string>();
 
   /**
    * Bing wraps each image result in a metadata blob. Two HTML formats appear
@@ -95,8 +96,14 @@ export async function GET(request: Request) {
         t?: string;
       };
       if (!obj.murl || !obj.turl) continue;
-      if (seen.has(obj.murl)) continue;
-      seen.add(obj.murl);
+      // Drop entries we've seen before by source URL OR by thumbnail URL.
+      // The latter prevents the grid from looking like the same image
+      // copied 60 times when Bing returns a bunch of stock-image entries
+      // that all share a placeholder thumbnail.
+      if (seenMurl.has(obj.murl)) continue;
+      if (seenTurl.has(obj.turl)) continue;
+      seenMurl.add(obj.murl);
+      seenTurl.add(obj.turl);
       images.push({
         full: obj.murl,
         thumb: obj.turl,
@@ -108,7 +115,20 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ images });
+  // Belt-and-braces no-cache headers. Netlify's edge respects the
+  // Netlify-CDN-Cache-Control variant specifically, and the browser uses
+  // `no-store` to skip its own cache. Without these, different queries
+  // could end up sharing a cached response in some setups.
+  return NextResponse.json(
+    { images },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0, must-revalidate",
+        "Netlify-CDN-Cache-Control": "no-store",
+        "CDN-Cache-Control": "no-store",
+      },
+    }
+  );
 }
 
 function decodeHtmlEntities(s: string): string {

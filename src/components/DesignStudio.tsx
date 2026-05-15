@@ -2441,8 +2441,12 @@ function WebSearchModal({
     setSearchError(null);
     setResults(null);
     try {
+      // `cache: "no-store"` + the unique `_` param guarantee the browser
+      // and any intermediate cache treat every query as fresh, so we never
+      // accidentally show the previous query's results.
       const res = await fetch(
-        `/api/image-search?q=${encodeURIComponent(q)}`
+        `/api/image-search?q=${encodeURIComponent(q)}&_=${Date.now()}`,
+        { cache: "no-store" }
       );
       const json = (await res.json()) as { images?: BingResult[]; error?: string };
       if (!res.ok) throw new Error(json.error ?? "Search failed");
