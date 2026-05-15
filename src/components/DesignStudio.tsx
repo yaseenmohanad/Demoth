@@ -2429,9 +2429,14 @@ function WebSearchModal({
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<BingResult[] | null>(null);
+  const [resultsFor, setResultsFor] = useState<string>("");
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [pickingUrl, setPickingUrl] = useState<string | null>(null);
+
+  /** Old results are stale once the user starts typing a different query. */
+  const showingStale =
+    results !== null && query.trim() !== "" && query.trim() !== resultsFor;
 
   async function runSearch(e?: React.FormEvent) {
     e?.preventDefault();
@@ -2451,6 +2456,7 @@ function WebSearchModal({
       const json = (await res.json()) as { images?: BingResult[]; error?: string };
       if (!res.ok) throw new Error(json.error ?? "Search failed");
       setResults(json.images ?? []);
+      setResultsFor(q);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "Search failed");
       setResults([]);
@@ -2539,8 +2545,19 @@ function WebSearchModal({
               No results. Try a different search.
             </p>
           )}
+          {showingStale && !searching && (
+            <p className="rounded-xl bg-[var(--primary-soft)] px-3 py-2 text-xs text-[var(--primary-strong)]">
+              Showing results for <strong>&quot;{resultsFor}&quot;</strong>.
+              Press <kbd className="rounded bg-white px-1 font-semibold">Enter</kbd>{" "}
+              or the search button to search for <strong>&quot;{query.trim()}&quot;</strong>.
+            </p>
+          )}
           {results && results.length > 0 && (
-            <div className="grid grid-cols-3 gap-2">
+            <div
+              className={`grid grid-cols-3 gap-2 ${
+                showingStale ? "opacity-40" : ""
+              }`}
+            >
               {results.map((r, i) => {
                 const isPicking = pickingUrl === r.full;
                 return (
