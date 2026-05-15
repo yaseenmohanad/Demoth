@@ -821,30 +821,27 @@ export default function DesignStudio() {
         patchElement(t.elementId, { rot: rounded } as Partial<DesignElement>);
         setLiveAngle(rounded);
       } else if (t.kind === "resize") {
-        // Center-pivot resize. Side handles change one dimension; corners
-        // change both. There is no upper bound on size; minimum 12px so
-        // the element doesn't disappear.
-        const halfX = Math.max(12, Math.abs(x - t.origCx));
-        const halfY = Math.max(12, Math.abs(y - t.origCy));
-        let newW = t.origW;
-        let newH = t.origH;
-        switch (t.anchor) {
-          case "l":
-          case "r":
-            newW = halfX * 2;
-            break;
-          case "t":
-          case "b":
-            newH = halfY * 2;
-            break;
-          case "tl":
-          case "tr":
-          case "bl":
-          case "br":
-            newW = halfX * 2;
-            newH = halfY * 2;
-            break;
-        }
+        // Center-pivot resize, computed from the *delta* from the drag's
+        // starting point — not from the pointer's absolute distance to
+        // the center. The old approach made the element snap to whatever
+        // size matched the pointer's location, so a touch-down even one
+        // pixel off the handle's centre would instantly resize the
+        // element to a wildly different size. With deltas, the size only
+        // changes by how far the finger has actually moved.
+        const dx = x - t.startX;
+        const dy = y - t.startY;
+        // Which side(s) of the bbox does this handle pull? +1 = right /
+        // bottom, -1 = left / top, 0 = centred on that axis.
+        let signX = 0;
+        let signY = 0;
+        if (t.anchor === "tl" || t.anchor === "l" || t.anchor === "bl") signX = -1;
+        if (t.anchor === "tr" || t.anchor === "r" || t.anchor === "br") signX = 1;
+        if (t.anchor === "tl" || t.anchor === "t" || t.anchor === "tr") signY = -1;
+        if (t.anchor === "bl" || t.anchor === "b" || t.anchor === "br") signY = 1;
+        // Center-pivot: dragging an edge outward by d grows the
+        // dimension by 2d (the opposite edge moves inward by d too).
+        const newW = signX !== 0 ? Math.max(12, t.origW + 2 * dx * signX) : t.origW;
+        const newH = signY !== 0 ? Math.max(12, t.origH + 2 * dy * signY) : t.origH;
         const target = design.elements.find((el) => el.id === t.elementId);
         if (!target) return;
         if (target.type === "text") {
