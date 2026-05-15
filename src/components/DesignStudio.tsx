@@ -1205,7 +1205,13 @@ export default function DesignStudio() {
           viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
           className="h-full w-full select-none"
           style={{
-            touchAction: "none",
+            // Let touch on empty canvas scroll the page vertically — otherwise
+            // mobile users get stuck on the design page with no way to reach
+            // the toolbar/danger zone below. Elements override this back to
+            // `none` so dragging them still works in any direction.
+            // In Draw mode the whole canvas is interactive (you're stroking
+            // it), so we revoke the browser's claim to vertical pans there.
+            touchAction: tool === "draw" ? "none" : "pan-y",
             cursor:
               tool === "draw"
                 ? "crosshair"
@@ -2069,7 +2075,7 @@ function renderElement(
           fontStyle={el.italic ? "italic" : "normal"}
           dominantBaseline="middle"
           textAnchor="middle"
-          style={{ cursor: "move" }}
+          style={{ cursor: "move", touchAction: "none" }}
           onPointerDown={(e) => onPointerDown(e, el)}
           onContextMenu={(e) => onContextMenu(e, el)}
         >
@@ -2088,7 +2094,7 @@ function renderElement(
           width={el.w}
           height={el.h}
           preserveAspectRatio="xMidYMid slice"
-          style={{ cursor: "move" }}
+          style={{ cursor: "move", touchAction: "none" }}
           onPointerDown={(e) => onPointerDown(e, el)}
           onContextMenu={(e) => onContextMenu(e, el)}
         />
@@ -2100,7 +2106,7 @@ function renderElement(
       <g
         key={k}
         transform={t || undefined}
-        style={{ cursor: "move" }}
+        style={{ cursor: "move", touchAction: "none" }}
         onPointerDown={(e) => onPointerDown(e, el)}
         onContextMenu={(e) => onContextMenu(e, el)}
       >
@@ -2127,7 +2133,7 @@ function renderElement(
         strokeLinecap="round"
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
-        style={{ cursor: "pointer" }}
+        style={{ cursor: "pointer", touchAction: "none" }}
         onPointerDown={(e) => onPointerDown(e, el)}
         onContextMenu={(e) => onContextMenu(e, el)}
         strokeOpacity={isSelectedStroke ? 0.6 : 1}
@@ -2216,7 +2222,7 @@ function SelectionOverlay({
             stroke="var(--primary)"
             strokeWidth={1.5}
             rx={2}
-            style={{ cursor: handle.cursor }}
+            style={{ cursor: handle.cursor, touchAction: "none" }}
             onPointerDown={(e) => onResizeDown(e, element, handle.anchor)}
           />
         </g>
@@ -2229,7 +2235,7 @@ function SelectionOverlay({
         fill="white"
         stroke="var(--primary)"
         strokeWidth={1.5}
-        style={{ cursor: "grab" }}
+        style={{ cursor: "grab", touchAction: "none" }}
         onPointerDown={(e) => onRotateDown(e, element)}
       />
       {/* live angle readout */}
