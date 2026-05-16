@@ -1,6 +1,6 @@
 # Demoth
 
-T-shirt design studio built with Next.js 16.
+T-shirt design studio built with Next.js 16. Design your own clothes.
 
 Live: https://demoth.netlify.app
 
