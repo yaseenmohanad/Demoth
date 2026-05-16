@@ -20,6 +20,7 @@ import {
   PlusIcon,
   TruckIcon,
 } from "@/components/Icons";
+import Logo from "@/components/Logo";
 
 interface Listing {
   design: Design;
@@ -77,8 +78,8 @@ export default function OtherDesignsPage() {
         </header>
 
         <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-amber-50 via-fuchsia-50 to-violet-50 p-6 text-center shadow-sm ring-1 ring-[var(--border)]">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-fuchsia-500 text-white shadow-lg">
-            <SparkleIcon size={28} />
+          <div className="mx-auto flex justify-center">
+            <Logo size={64} />
           </div>
           <h2 className="mt-4 text-xl font-bold">Premium only</h2>
           <p className="mx-auto mt-1 max-w-sm text-sm text-[var(--muted)]">

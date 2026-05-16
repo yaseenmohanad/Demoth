@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { updateProfile } from "@/lib/store";
+import Logo from "./Logo";
 import { SparkleIcon, XIcon, CheckIcon } from "./Icons";
 
 interface Props {
@@ -66,9 +67,7 @@ export default function PremiumModal({ open, onClose, onActivated }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3">
-          <span className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-fuchsia-500 text-white">
-            <SparkleIcon size={20} />
-          </span>
+          <Logo size={40} />
           <div className="flex-1">
             <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
               Demoth Premium

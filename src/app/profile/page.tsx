@@ -10,7 +10,8 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import Avatar from "@/components/Avatar";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import PremiumModal from "@/components/PremiumModal";
-import { TrashIcon, UploadIcon, SparkleIcon } from "@/components/Icons";
+import Logo from "@/components/Logo";
+import { TrashIcon, UploadIcon } from "@/components/Icons";
 
 /** Read a File as a data URL so we can hand it to the avatar crop modal. */
 function fileToDataUrl(file: File): Promise<string> {
@@ -54,10 +55,13 @@ export default function ProfilePage() {
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-widest text-[var(--muted)]">
-            Profile
-          </p>
-          <h1 className="mt-1 text-3xl font-bold">Your account</h1>
+          <div className="flex items-center gap-2">
+            <Logo size={28} />
+            <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
+              Demoth
+            </span>
+          </div>
+          <h1 className="mt-3 text-3xl font-bold">Your account</h1>
         </div>
         <Link
           href="/admin"
@@ -137,9 +141,7 @@ export default function ProfilePage() {
       {hydrated && !profile.premium && (
         <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-amber-50 via-fuchsia-50 to-violet-50 p-5 shadow-sm ring-1 ring-[var(--border)]">
           <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-fuchsia-500 text-white shadow">
-              <SparkleIcon size={20} />
-            </span>
+            <Logo size={36} />
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
                 Demoth Premium
@@ -159,9 +161,7 @@ export default function ProfilePage() {
       {hydrated && profile.premium && (
         <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--border)]">
           <div className="flex items-center gap-2">
-            <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-amber-300 to-fuchsia-500 text-white">
-              <SparkleIcon size={14} />
-            </span>
+            <Logo size={24} />
             <p className="text-sm font-bold">Premium settings</p>
             <span className="ml-auto rounded-full bg-gradient-to-r from-amber-400 to-fuchsia-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white">
               Active
