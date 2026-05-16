@@ -93,25 +93,6 @@ export default function OtherDesignsPage() {
           >
             <SparkleIcon size={16} /> Get Premium
           </button>
-
-          {/* Sneak peek: a few thumbnails dimmed */}
-          {listings.length > 0 && (
-            <div className="mt-6">
-              <p className="text-[10px] uppercase tracking-widest text-[var(--muted)]">
-                Sneak peek
-              </p>
-              <div className="mt-2 flex justify-center gap-2">
-                {listings.slice(0, 3).map((l) => (
-                  <div
-                    key={l.design.id}
-                    className="h-24 w-20 overflow-hidden rounded-xl bg-white p-1 opacity-60 blur-[1px] ring-1 ring-[var(--border)]"
-                  >
-                    <DesignPreview design={l.design} className="h-full w-full" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </section>
 
         <PremiumModal
