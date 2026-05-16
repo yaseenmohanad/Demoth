@@ -15,7 +15,8 @@ import {
   useHydrated,
   useAppState,
 } from "@/lib/store";
-import { autoCorrectOnInput } from "@/lib/auto-correct";
+import { suggestWords, trailingWord } from "@/lib/word-suggestions";
+import { recognizeShape, type ShapeMatch } from "@/lib/recognize-shape";
 import type {
   Design,
   DesignElement,
@@ -46,6 +47,7 @@ import {
   ShapesIcon,
   CursorIcon,
   UndoIcon,
+  SparkleIcon,
   RedoIcon,
   EyeIcon,
 } from "@/components/Icons";
@@ -313,6 +315,18 @@ export default function DesignStudio() {
   const [showShapes, setShowShapes] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+  /** Shape suggestion toast shown after a freehand drawing finishes (when
+   *  premium auto-correct is on). The user picks a perfect shape from the
+   *  options or dismisses to keep their stroke. */
+  const [shapeSuggestion, setShapeSuggestion] = useState<{
+    strokeId: string;
+    options: ShapeMatch[];
+    cx: number;
+    cy: number;
+    w: number;
+    h: number;
+    color: string;
+  } | null>(null);
   /**
    * Context menu state. `elementId` is the right-clicked element when one
    * was hit, or null when the user right-clicked an empty area of the
@@ -975,33 +989,26 @@ export default function DesignStudio() {
       cancelLongPress();
     }
     if (drawRef.current && drawRef.current.pointerId === e.pointerId) {
-      // If premium auto-correct is on, simplify+smooth the just-drawn
-      // stroke so it doesn't look jittery.
-      if (autoCorrectActive && drawRef.current.points.length >= 4) {
-        const smoothed = smoothStrokePoints(drawRef.current.points);
-        if (smoothed.length >= 2) {
-          const d =
-            "M " +
-            smoothed
-              .map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-              .join(" L ");
-          let minX = Infinity,
-            maxX = -Infinity,
-            minY = Infinity,
-            maxY = -Infinity;
-          for (const p of smoothed) {
-            if (p.x < minX) minX = p.x;
-            if (p.x > maxX) maxX = p.x;
-            if (p.y < minY) minY = p.y;
-            if (p.y > maxY) maxY = p.y;
+      // If premium auto-correct is on, offer the user a few "perfect
+      // shape" suggestions based on what they just drew. Nothing happens
+      // silently — they pick one to apply or dismiss to keep the stroke.
+      if (autoCorrectActive && drawRef.current.points.length >= 6) {
+        const ranked = recognizeShape(drawRef.current.points);
+        const best = ranked.filter((m) => m.score >= 0.5).slice(0, 3);
+        if (best.length > 0) {
+          const strokeId = drawRef.current.pathId;
+          const elem = design.elements.find((el) => el.id === strokeId);
+          if (elem && elem.type === "stroke") {
+            setShapeSuggestion({
+              strokeId,
+              options: best,
+              cx: elem.x,
+              cy: elem.y,
+              w: Math.max(40, elem.w),
+              h: Math.max(40, elem.h),
+              color: elem.color,
+            });
           }
-          patchElement(drawRef.current.pathId, {
-            d,
-            x: (minX + maxX) / 2,
-            y: (minY + maxY) / 2,
-            w: maxX - minX,
-            h: maxY - minY,
-          } as Partial<DesignElement>);
         }
       }
       drawRef.current = null;
@@ -1585,6 +1592,43 @@ export default function DesignStudio() {
         />
       )}
 
+      {/* Shape recognition suggestion — pops in after a drawing finishes
+          when premium auto-correct is on. Picking a suggestion swaps the
+          stroke for a perfect Shape element of the same size; dismissing
+          keeps the user's original drawing. */}
+      {shapeSuggestion && (
+        <ShapeSuggestionToast
+          options={shapeSuggestion.options}
+          color={shapeSuggestion.color}
+          onPick={(variant) => {
+            const s = shapeSuggestion;
+            // History snapshot of the design *with* the stroke so undo
+            // walks back the replacement.
+            pushHistory();
+            const newId = makeId();
+            setDesign((d) => ({
+              ...d,
+              elements: d.elements
+                .filter((el) => el.id !== s.strokeId)
+                .concat({
+                  id: newId,
+                  type: "shape",
+                  variant,
+                  x: s.cx,
+                  y: s.cy,
+                  w: s.w,
+                  h: s.h,
+                  rot: 0,
+                  color: s.color,
+                }),
+            }));
+            setSelectedId(newId);
+            setShapeSuggestion(null);
+          }}
+          onDismiss={() => setShapeSuggestion(null)}
+        />
+      )}
+
       {/* Right-click context menu */}
       {contextMenu && (
         <ContextMenu
@@ -1946,6 +1990,75 @@ function PreviewModal({
             Back to editing
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A small floating panel that pops in after a freehand drawing is
+ * recognised. Shows up to three "did you mean this shape?" options and a
+ * Keep-mine button — nothing applies until the user taps something.
+ */
+function ShapeSuggestionToast({
+  options,
+  color,
+  onPick,
+  onDismiss,
+}: {
+  options: ShapeMatch[];
+  color: string;
+  onPick: (variant: ShapeVariant) => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="fixed inset-x-0 bottom-24 z-40 mx-auto w-full max-w-md px-4">
+      <div className="space-y-3 rounded-3xl bg-white p-4 shadow-2xl ring-1 ring-[var(--border)]">
+        <div className="flex items-center gap-2">
+          <SparkleIcon size={16} className="text-[var(--primary)]" />
+          <p className="text-sm font-bold">Did you draw one of these?</p>
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dismiss suggestions"
+            className="ml-auto grid h-7 w-7 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--background)]"
+          >
+            <XIcon size={16} />
+          </button>
+        </div>
+        <div className="flex items-stretch gap-2">
+          {options.map((m) => (
+            <button
+              key={m.variant}
+              type="button"
+              onClick={() => onPick(m.variant)}
+              className="group flex flex-1 flex-col items-center justify-center gap-1 rounded-2xl bg-[var(--background)] p-2 ring-1 ring-[var(--border)] transition-all hover:-translate-y-0.5 hover:ring-[var(--primary)]"
+              title={SHAPE_LABELS[m.variant]}
+            >
+              <svg viewBox="0 0 100 100" className="h-12 w-12">
+                <ShapeNode
+                  variant={m.variant}
+                  cx={50}
+                  cy={50}
+                  w={70}
+                  h={70}
+                  color={color}
+                  uid={`suggest-${m.variant}`}
+                />
+              </svg>
+              <span className="text-[10px] font-semibold text-[var(--muted)] group-hover:text-[var(--primary)]">
+                {SHAPE_LABELS[m.variant]}
+              </span>
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="w-full rounded-xl bg-[var(--background)] px-3 py-2 text-xs font-semibold text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--foreground)]"
+        >
+          Keep my drawing
+        </button>
       </div>
     </div>
   );
@@ -2415,6 +2528,48 @@ function GarmentPicker({ onPick }: { onPick: (g: GarmentType) => void }) {
   );
 }
 
+/**
+ * Renders chips with spelling suggestions for the trailing word in `text`.
+ * The user taps one to apply — nothing happens silently. When the typed
+ * word looks fine (or is empty), no chips render.
+ */
+function WordSuggestionChips({
+  text,
+  onApply,
+}: {
+  text: string;
+  onApply: (next: string) => void;
+}) {
+  const info = trailingWord(text);
+  if (!info) return null;
+  const suggestions = suggestWords(info.word, 4);
+  if (suggestions.length === 0) return null;
+  function replaceWord(replacement: string) {
+    if (!info) return;
+    const next =
+      text.slice(0, info.start) + replacement + text.slice(info.end);
+    onApply(next);
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+        Did you mean:
+      </span>
+      {suggestions.map((s) => (
+        <button
+          key={s.replacement}
+          type="button"
+          onMouseDown={(e) => e.preventDefault() /* keep input focus */}
+          onClick={() => replaceWord(s.replacement)}
+          className="rounded-full bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white"
+        >
+          {s.replacement}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ElementControls({
   element,
   autoCorrect,
@@ -2447,20 +2602,13 @@ function ElementControls({
         </div>
         <input
           value={element.text}
-          onChange={(e) => {
-            // When auto-correct is on (premium), look at the just-typed
-            // character to maybe replace the word before it. Native
-            // spellCheck below still gives the user red underlines.
-            const next = autoCorrect
-              ? autoCorrectOnInput(element.text, e.target.value)
-              : e.target.value;
-            onPatch(element.id, { text: next });
-          }}
+          onChange={(e) => onPatch(element.id, { text: e.target.value })}
           spellCheck
           maxLength={60}
           className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-soft)]"
           placeholder="Type your text…"
         />
+        {autoCorrect && <WordSuggestionChips text={element.text} onApply={(replaced) => onPatch(element.id, { text: replaced })} />}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5">
             {TEXT_COLORS.map((c) => (
