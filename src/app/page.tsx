@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAppState, useHydrated } from "@/lib/store";
 import { displayName } from "@/lib/format";
 import DesignPreview from "@/components/DesignPreview";
+import Logo from "@/components/Logo";
 import { BrushIcon, TruckIcon, PlusIcon } from "@/components/Icons";
 
 export default function HomePage() {
@@ -13,10 +14,13 @@ export default function HomePage() {
   return (
     <div className="space-y-6">
       <header>
-        <p className="text-xs uppercase tracking-widest text-[var(--muted)]">
-          Dashboard
-        </p>
-        <h1 className="mt-1 text-3xl font-bold leading-tight">
+        <div className="flex items-center gap-2">
+          <Logo size={28} />
+          <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
+            Demoth
+          </span>
+        </div>
+        <h1 className="mt-3 text-3xl font-bold leading-tight">
           Hello, {hydrated ? profile.name : "there"}!
           <br />
           Design your style.

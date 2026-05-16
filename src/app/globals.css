@@ -56,3 +56,23 @@ input[type="number"]::-webkit-inner-spin-button {
 *::-webkit-scrollbar-thumb:hover {
   background: var(--accent);
 }
+
+/* Demoth diamond logo — slow Y-axis spin so the facets catch
+   the light as it turns. transform-origin is the center of the
+   SVG so the rotation is on the gem's axis, not its corner. */
+@keyframes demoth-logo-spin {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
+}
+.demoth-logo-spin {
+  animation: demoth-logo-spin 4s linear infinite;
+  transform-origin: 50% 50%;
+  transform-style: preserve-3d;
+  backface-visibility: visible;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .demoth-logo-spin {
+    animation: none;
+  }
+}
