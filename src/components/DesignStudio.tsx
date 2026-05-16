@@ -995,7 +995,10 @@ export default function DesignStudio() {
       const pts = drawRef.current.points;
       if (autoCorrectActive && pts.length >= 6) {
         const ranked = recognizeShape(pts);
-        const best = ranked.filter((m) => m.score >= 0.3).slice(0, 3);
+        // As long as *some* template plausibly resembles the drawing,
+        // show the top three. The user picks the right one or dismisses.
+        const best =
+          ranked.length > 0 && ranked[0].score >= 0.15 ? ranked.slice(0, 3) : [];
         if (best.length > 0) {
           // Compute the stroke's bbox right here from the captured points
           // so we don't depend on stale design state.

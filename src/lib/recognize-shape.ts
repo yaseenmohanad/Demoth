@@ -113,9 +113,25 @@ export function preprocess(points: Point[]): Point[] {
   // rotation step actively hurt asymmetric shapes (heart, droplet, moon)
   // because the candidate and the template ended up at different
   // orientations depending on which point they started from.
+  //
+  // Centre on the *centroid* first, then scale uniformly. The previous
+  // order ("scale bbox into [-0.5, 0.5] then translate centroid") moved
+  // asymmetric shapes around relative to symmetric ones — a heart's
+  // centroid sits above its bbox centre so it ended up offset from the
+  // template's heart after normalisation. Doing it this way means the
+  // user's heart and the template heart end up in the same place.
   const resampled = resample(points, N_POINTS);
-  const scaled = scaleToUnit(resampled);
-  return translateToOrigin(scaled);
+  const c = centroid(resampled);
+  const centered = resampled.map((p) => ({ x: p.x - c.x, y: p.y - c.y }));
+  // Uniform scale: longest centroid-relative extent becomes 0.5.
+  let maxAbs = 0;
+  for (const p of centered) {
+    const m = Math.max(Math.abs(p.x), Math.abs(p.y));
+    if (m > maxAbs) maxAbs = m;
+  }
+  if (maxAbs < 1e-6) return centered;
+  const s = 0.5 / maxAbs;
+  return centered.map((p) => ({ x: p.x * s, y: p.y * s }));
 }
 
 // ---- templates ----
