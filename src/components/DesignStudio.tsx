@@ -1494,7 +1494,7 @@ export default function DesignStudio() {
             />
           </div>
           <label className="ml-auto flex items-center gap-2 text-xs">
-            <span className="text-[var(--muted)]">Size</span>
+            <span className="text-[var(--muted)]">Thickness</span>
             <input
               type="range"
               min={1}
