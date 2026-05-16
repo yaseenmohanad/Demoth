@@ -196,17 +196,20 @@ function genStar(): Point[] {
 }
 
 function genMoon(): Point[] {
-  // Outer arc (left semicircle of a unit-radius circle): top → left → bottom
-  // Inner arc (right side of a narrower ellipse): bottom → middle → top
+  // Proper waning crescent: BOTH arcs bulge to the left, mouth opens
+  // right. The previous template had the inner arc on the right, making
+  // a "lens" shape (∞-style) that no real moon drawing matches.
   const out: Point[] = [];
   const N = 48;
+  // Outer arc: left half of unit circle, top → left bulge → bottom
   for (let i = 0; i < N; i++) {
-    const a = -Math.PI / 2 + (i / N) * Math.PI;
-    out.push({ x: -Math.cos(a), y: Math.sin(a) });
+    const a = Math.PI / 2 + (i / (N - 1)) * Math.PI;
+    out.push({ x: Math.cos(a), y: -Math.sin(a) });
   }
+  // Inner arc: left half of a narrower ellipse, bottom → smaller-left bulge → top
   for (let i = 0; i < N; i++) {
-    const a = Math.PI / 2 + (i / N) * Math.PI;
-    out.push({ x: -0.4 * Math.cos(a), y: Math.sin(a) });
+    const a = (3 * Math.PI) / 2 - (i / (N - 1)) * Math.PI;
+    out.push({ x: 0.4 * Math.cos(a), y: -Math.sin(a) });
   }
   return out;
 }
@@ -253,10 +256,48 @@ function genLeaf(): Point[] {
   });
 }
 
+/**
+ * Count "corners" — places where the direction of travel turns by more
+ * than `thresholdRad` between consecutive segments. A circle has 0; a
+ * square has 4; a pentagon 5. We don't pre-smooth — that flattened real
+ * corners along with the wobble — but we look at the change between
+ * segments spaced a few points apart so small per-step noise averages
+ * out without losing the big direction change at a real corner.
+ */
+function countCorners(
+  points: Point[],
+  thresholdRad = (50 * Math.PI) / 180
+): number {
+  if (points.length < 5) return 0;
+  const span = 2; // compare direction over `span` points
+  let count = 0;
+  let inCorner = false; // suppress consecutive detections of the same corner
+  for (let i = span; i < points.length - span; i++) {
+    const dx1 = points[i].x - points[i - span].x;
+    const dy1 = points[i].y - points[i - span].y;
+    const dx2 = points[i + span].x - points[i].x;
+    const dy2 = points[i + span].y - points[i].y;
+    const a1 = Math.atan2(dy1, dx1);
+    const a2 = Math.atan2(dy2, dx2);
+    let diff = a2 - a1;
+    if (diff > Math.PI) diff -= 2 * Math.PI;
+    if (diff < -Math.PI) diff += 2 * Math.PI;
+    if (Math.abs(diff) > thresholdRad) {
+      if (!inCorner) count++;
+      inCorner = true;
+    } else {
+      inCorner = false;
+    }
+  }
+  return count;
+}
+
 interface Template {
   variant: ShapeVariant;
   /** Pre-processed (resampled, scaled, centred, rotated) point list. */
   points: Point[];
+  /** Number of sharp corners (computed once at startup). */
+  corners: number;
 }
 
 const RAW_TEMPLATES: Array<{ variant: ShapeVariant; points: Point[] }> = [
@@ -274,10 +315,10 @@ const RAW_TEMPLATES: Array<{ variant: ShapeVariant; points: Point[] }> = [
   { variant: "leaf", points: genLeaf() },
 ];
 
-const TEMPLATES: Template[] = RAW_TEMPLATES.map((t) => ({
-  variant: t.variant,
-  points: preprocess(t.points),
-}));
+const TEMPLATES: Template[] = RAW_TEMPLATES.map((t) => {
+  const points = preprocess(t.points);
+  return { variant: t.variant, points, corners: countCorners(points) };
+});
 
 // ---- matching ----
 
@@ -315,16 +356,27 @@ export interface ShapeMatch {
 
 /**
  * Recognise a freehand stroke. Returns templates sorted by descending
- * score. The studio shows the top few that clear a confidence threshold.
+ * score.
+ *
+ * Scoring blends two signals:
+ *   - Symmetric Chamfer distance — "does the point cloud occupy the
+ *     same region as the template?".
+ *   - Corner-count similarity — "do they have similar sharpness?".
+ *     This is what stops a smooth circle from matching a pentagon
+ *     just because both occupy a unit disk.
  */
 export function recognizeShape(points: Point[]): ShapeMatch[] {
   if (points.length < 4) return [];
   const processed = preprocess(points);
+  const userCorners = countCorners(processed);
   return TEMPLATES.map((t) => {
-    const d = symmetricChamfer(processed, t.points);
-    // Chamfer distances on unit-bbox shapes typically run 0.02 (great)
-    // to ~0.25 (poor). Scale into a 0..1 score; cap at 0.
-    const score = Math.max(0, 1 - d * 4);
-    return { variant: t.variant, score };
+    const chamfer = symmetricChamfer(processed, t.points);
+    // Chamfer ∈ ~[0, 0.25]; scale into a 0..1 "shape" score.
+    const shapeScore = Math.max(0, 1 - chamfer * 4);
+    // Corner similarity: each missing/extra corner is a 12% hit, capped.
+    const cornerDelta = Math.abs(userCorners - t.corners);
+    const cornerPenalty = Math.min(0.6, cornerDelta * 0.12);
+    const finalScore = Math.max(0, shapeScore - cornerPenalty);
+    return { variant: t.variant, score: finalScore };
   }).sort((a, b) => b.score - a.score);
 }
