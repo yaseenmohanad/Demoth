@@ -989,26 +989,35 @@ export default function DesignStudio() {
       cancelLongPress();
     }
     if (drawRef.current && drawRef.current.pointerId === e.pointerId) {
-      // If premium auto-correct is on, offer the user a few "perfect
-      // shape" suggestions based on what they just drew. Nothing happens
-      // silently — they pick one to apply or dismiss to keep the stroke.
-      if (autoCorrectActive && drawRef.current.points.length >= 6) {
-        const ranked = recognizeShape(drawRef.current.points);
-        const best = ranked.filter((m) => m.score >= 0.5).slice(0, 3);
+      // If premium auto-correct is on, offer "perfect shape" suggestions
+      // based on what was just drawn. Nothing happens silently — they
+      // pick one to apply or dismiss to keep the stroke.
+      const pts = drawRef.current.points;
+      if (autoCorrectActive && pts.length >= 6) {
+        const ranked = recognizeShape(pts);
+        const best = ranked.filter((m) => m.score >= 0.3).slice(0, 3);
         if (best.length > 0) {
-          const strokeId = drawRef.current.pathId;
-          const elem = design.elements.find((el) => el.id === strokeId);
-          if (elem && elem.type === "stroke") {
-            setShapeSuggestion({
-              strokeId,
-              options: best,
-              cx: elem.x,
-              cy: elem.y,
-              w: Math.max(40, elem.w),
-              h: Math.max(40, elem.h),
-              color: elem.color,
-            });
+          // Compute the stroke's bbox right here from the captured points
+          // so we don't depend on stale design state.
+          let minX = Infinity,
+            maxX = -Infinity,
+            minY = Infinity,
+            maxY = -Infinity;
+          for (const p of pts) {
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
           }
+          setShapeSuggestion({
+            strokeId: drawRef.current.pathId,
+            options: best,
+            cx: (minX + maxX) / 2,
+            cy: (minY + maxY) / 2,
+            w: Math.max(40, maxX - minX),
+            h: Math.max(40, maxY - minY),
+            color: drawColor,
+          });
         }
       }
       drawRef.current = null;

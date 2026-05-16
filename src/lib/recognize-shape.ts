@@ -201,10 +201,30 @@ const TEMPLATES: Template[] = RAW_TEMPLATES.map((t) => ({
 
 // ---- matching ----
 
-function avgDistance(a: Point[], b: Point[]): number {
+/**
+ * One-sided Chamfer distance: for each point in `a`, find the nearest
+ * point in `b` and average those distances. Unlike point-by-point
+ * comparison this is independent of drawing direction and starting
+ * point — a circle drawn clockwise scores the same as one drawn
+ * counter-clockwise, which the user expects.
+ */
+function chamferOneWay(a: Point[], b: Point[]): number {
   let total = 0;
-  for (let i = 0; i < a.length; i++) total += dist(a[i], b[i]);
+  for (const p of a) {
+    let min = Infinity;
+    for (const q of b) {
+      const dx = p.x - q.x;
+      const dy = p.y - q.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < min) min = d2;
+    }
+    total += Math.sqrt(min);
+  }
   return total / a.length;
+}
+
+function symmetricChamfer(a: Point[], b: Point[]): number {
+  return (chamferOneWay(a, b) + chamferOneWay(b, a)) / 2;
 }
 
 export interface ShapeMatch {
@@ -220,13 +240,11 @@ export interface ShapeMatch {
 export function recognizeShape(points: Point[]): ShapeMatch[] {
   if (points.length < 4) return [];
   const processed = preprocess(points);
-  // Compare candidate (rotated to its own indicative angle) against
-  // templates (rotated to theirs). For shapes with rotational symmetry
-  // (square, circle, …) this gives rotation invariance.
   return TEMPLATES.map((t) => {
-    const d = avgDistance(processed, t.points);
-    // Map distance → score. avg distance ~0 = great match, ~0.5 = bad.
-    const score = Math.max(0, 1 - d * 1.6);
+    const d = symmetricChamfer(processed, t.points);
+    // Chamfer distances on unit-bbox shapes typically run 0.02 (great)
+    // to ~0.25 (poor). Scale into a 0..1 score; cap at 0.
+    const score = Math.max(0, 1 - d * 4);
     return { variant: t.variant, score };
   }).sort((a, b) => b.score - a.score);
 }
