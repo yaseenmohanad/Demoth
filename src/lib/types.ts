@@ -12,6 +12,10 @@ export type ShapeVariant =
   | "heart"
   | "arrow"
   | "cross"
+  | "moon"
+  | "droplet"
+  | "lightning"
+  | "leaf"
   // 3D (rendered with gradients)
   | "cube3d"
   | "sphere3d"

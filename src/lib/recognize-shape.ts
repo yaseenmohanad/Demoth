@@ -109,11 +109,13 @@ export function scaleToUnit(points: Point[]): Point[] {
 }
 
 export function preprocess(points: Point[]): Point[] {
+  // No indicative-angle rotation. Most users draw shapes upright, and the
+  // rotation step actively hurt asymmetric shapes (heart, droplet, moon)
+  // because the candidate and the template ended up at different
+  // orientations depending on which point they started from.
   const resampled = resample(points, N_POINTS);
   const scaled = scaleToUnit(resampled);
-  const centered = translateToOrigin(scaled);
-  const angle = indicativeAngle(centered);
-  return rotateBy(centered, -angle);
+  return translateToOrigin(scaled);
 }
 
 // ---- templates ----
@@ -177,6 +179,64 @@ function genStar(): Point[] {
   return out;
 }
 
+function genMoon(): Point[] {
+  // Outer arc (left semicircle of a unit-radius circle): top → left → bottom
+  // Inner arc (right side of a narrower ellipse): bottom → middle → top
+  const out: Point[] = [];
+  const N = 48;
+  for (let i = 0; i < N; i++) {
+    const a = -Math.PI / 2 + (i / N) * Math.PI;
+    out.push({ x: -Math.cos(a), y: Math.sin(a) });
+  }
+  for (let i = 0; i < N; i++) {
+    const a = Math.PI / 2 + (i / N) * Math.PI;
+    out.push({ x: -0.4 * Math.cos(a), y: Math.sin(a) });
+  }
+  return out;
+}
+
+function genDroplet(): Point[] {
+  // Parametric teardrop, point at top.
+  return Array.from({ length: 96 }, (_, i) => {
+    const t = (i / 96) * Math.PI * 2;
+    const x = (1 - Math.cos(t)) * Math.sin(t) * 0.7;
+    const y = -Math.cos(t);
+    return { x, y };
+  });
+}
+
+function genLightning(): Point[] {
+  // Lightning-bolt corners (closed polygon).
+  const corners: Point[] = [
+    { x: 0.05, y: -1 },
+    { x: -0.4, y: -0.1 },
+    { x: -0.05, y: -0.1 },
+    { x: -0.25, y: 1 },
+    { x: 0.35, y: -0.05 },
+    { x: 0, y: -0.05 },
+    { x: 0.35, y: -1 },
+  ];
+  const out: Point[] = [];
+  const N_PER_SEG = 14;
+  for (let i = 0; i < corners.length; i++) {
+    const a = corners[i];
+    const b = corners[(i + 1) % corners.length];
+    for (let j = 0; j < N_PER_SEG; j++) out.push(lerp(a, b, j / N_PER_SEG));
+  }
+  return out;
+}
+
+function genLeaf(): Point[] {
+  // Lens-shaped leaf, narrow at top and bottom.
+  const N = 96;
+  return Array.from({ length: N }, (_, i) => {
+    const t = (i / N) * Math.PI * 2;
+    const x = 0.4 * Math.sin(t);
+    const y = Math.cos(t);
+    return { x, y };
+  });
+}
+
 interface Template {
   variant: ShapeVariant;
   /** Pre-processed (resampled, scaled, centred, rotated) point list. */
@@ -192,6 +252,10 @@ const RAW_TEMPLATES: Array<{ variant: ShapeVariant; points: Point[] }> = [
   { variant: "hexagon", points: genPolygon(6) },
   { variant: "star", points: genStar() },
   { variant: "heart", points: genHeart() },
+  { variant: "moon", points: genMoon() },
+  { variant: "droplet", points: genDroplet() },
+  { variant: "lightning", points: genLightning() },
+  { variant: "leaf", points: genLeaf() },
 ];
 
 const TEMPLATES: Template[] = RAW_TEMPLATES.map((t) => ({

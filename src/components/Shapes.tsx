@@ -9,6 +9,10 @@ export const SHAPES_2D: ShapeVariant[] = [
   "hexagon",
   "star",
   "heart",
+  "moon",
+  "droplet",
+  "lightning",
+  "leaf",
   "arrow",
   "cross",
 ];
@@ -32,6 +36,10 @@ export const SHAPE_LABELS: Record<ShapeVariant, string> = {
   heart: "Heart",
   arrow: "Arrow",
   cross: "Cross",
+  moon: "Moon",
+  droplet: "Drop",
+  lightning: "Bolt",
+  leaf: "Leaf",
   cube3d: "3D Cube",
   sphere3d: "3D Sphere",
   cylinder3d: "3D Cylinder",
@@ -106,6 +114,18 @@ export function ShapeNode({ variant, cx, cy, w, h, color, uid }: ShapeProps) {
   if (variant === "cross") {
     const path = crossPath(cx, cy, w, h);
     return <path d={path} fill={color} />;
+  }
+  if (variant === "moon") {
+    return <path d={moonPath(cx, cy, w, h)} fill={color} />;
+  }
+  if (variant === "droplet") {
+    return <path d={dropletPath(cx, cy, w, h)} fill={color} />;
+  }
+  if (variant === "lightning") {
+    return <path d={lightningPath(cx, cy, w, h)} fill={color} />;
+  }
+  if (variant === "leaf") {
+    return <path d={leafPath(cx, cy, w, h)} fill={color} />;
   }
 
   // ---- 3D shapes (use gradients for shading) ----
@@ -352,6 +372,67 @@ function crossPath(cx: number, cy: number, w: number, h: number): string {
     `L ${x} ${y + (h + armH) / 2}`,
     `L ${x} ${y + (h - armH) / 2}`,
     `L ${x + (w - armW) / 2} ${y + (h - armH) / 2}`,
+    `Z`,
+  ].join(" ");
+}
+
+function moonPath(cx: number, cy: number, w: number, h: number): string {
+  // A waning crescent: a big outer arc on the left, a smaller inner arc
+  // on the right that bites the moon's middle out.
+  const rx = w / 2;
+  const ry = h / 2;
+  const innerRx = rx * 0.5;
+  return [
+    `M ${cx} ${cy - ry}`,
+    // outer arc — top → left → bottom
+    `A ${rx} ${ry} 0 0 0 ${cx} ${cy + ry}`,
+    // inner arc — bottom → into the body → top
+    `A ${innerRx} ${ry} 0 0 1 ${cx} ${cy - ry}`,
+    `Z`,
+  ].join(" ");
+}
+
+function dropletPath(cx: number, cy: number, w: number, h: number): string {
+  // Teardrop with the point at the top, round bottom.
+  const rx = w / 2;
+  const ry = h / 2;
+  const topY = cy - ry;
+  const botY = cy + ry;
+  return [
+    `M ${cx} ${topY}`,
+    // Right side: cubic from top point to bottom-right curve
+    `C ${cx + rx} ${cy - ry * 0.3} ${cx + rx} ${cy + ry * 0.5} ${cx} ${botY}`,
+    // Left side back to top
+    `C ${cx - rx} ${cy + ry * 0.5} ${cx - rx} ${cy - ry * 0.3} ${cx} ${topY}`,
+    `Z`,
+  ].join(" ");
+}
+
+function lightningPath(cx: number, cy: number, w: number, h: number): string {
+  // Classic seven-point zigzag bolt.
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  return [
+    `M ${x + w * 0.55} ${y}`,
+    `L ${x + w * 0.1}  ${y + h * 0.45}`,
+    `L ${x + w * 0.45} ${y + h * 0.45}`,
+    `L ${x + w * 0.25} ${y + h}`,
+    `L ${x + w * 0.85} ${y + h * 0.45}`,
+    `L ${x + w * 0.5}  ${y + h * 0.45}`,
+    `L ${x + w * 0.85} ${y}`,
+    `Z`,
+  ].join(" ");
+}
+
+function leafPath(cx: number, cy: number, w: number, h: number): string {
+  // Lens-shaped leaf, pointed at top and bottom, fat in the middle.
+  // Two cubic curves that meet at a slight angle.
+  const rx = w / 2;
+  const ry = h / 2;
+  return [
+    `M ${cx} ${cy - ry}`,
+    `C ${cx + rx} ${cy - ry * 0.4} ${cx + rx} ${cy + ry * 0.4} ${cx} ${cy + ry}`,
+    `C ${cx - rx} ${cy + ry * 0.4} ${cx - rx} ${cy - ry * 0.4} ${cx} ${cy - ry}`,
     `Z`,
   ].join(" ");
 }
