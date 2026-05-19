@@ -56,7 +56,7 @@ export default function ProfilePage() {
       <header className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <Logo size={28} />
+            {hydrated && profile.premium && <Logo size={28} />}
             <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
               Demoth
             </span>
