@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-export const runtime = "nodejs";
+// Edge runtime keeps this route compatible with Cloudflare Pages. The
+// proxy only uses ArrayBuffer + fetch (both Web standards), no Node-only
+// APIs like Buffer, so the switch is free.
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 // Wikimedia and similar sites reject generic browser UAs — they want one that

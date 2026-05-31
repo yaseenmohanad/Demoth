@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-export const runtime = "nodejs";
+// Edge runtime keeps this route compatible with Cloudflare Pages, which
+// rejects Node-runtime functions. We don't use any Node-only APIs here
+// (just fetch + regex), so the switch is free.
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 interface BingResult {
