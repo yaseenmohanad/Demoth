@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "windows12",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "http-server", "C:/Users/QK/windows12", "-p", "5599", "-c-1"],
+      "port": 5599
+    }
+  ]
+}

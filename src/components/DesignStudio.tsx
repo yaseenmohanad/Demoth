@@ -17,7 +17,6 @@ import {
 } from "@/lib/store";
 import { suggestWords, trailingWord } from "@/lib/word-suggestions";
 import { recognizeShape, type ShapeMatch } from "@/lib/recognize-shape";
-import { recognizeDrawing, type MLPrediction } from "@/lib/ml-recognition";
 import type {
   Design,
   DesignElement,
@@ -323,10 +322,6 @@ export default function DesignStudio() {
     strokeId: string;
     /** Template-matcher results (we have perfect-shape SVG renderings). */
     options: ShapeMatch[];
-    /** ML predictions from HF (anything goes — letters, "shopping cart",
-     *  etc.). Populated asynchronously a moment after the toast first
-     *  appears. Empty when HF_TOKEN isn't set or the request failed. */
-    mlPredictions: MLPrediction[];
     cx: number;
     cy: number;
     w: number;
@@ -1020,49 +1015,21 @@ export default function DesignStudio() {
           h: Math.max(40, maxY - minY),
         };
 
-        // Template matcher: fast, runs synchronously.
+        // Template matcher: fast, runs synchronously. Only opens the
+        // toast if at least one template plausibly resembles the drawing.
         const ranked = recognizeShape(pts);
         const best =
           ranked.length > 0 && ranked[0].score >= 0.15
             ? ranked.slice(0, 3)
             : [];
-
-        // Open the toast immediately if the template matcher had anything
-        // plausible, so the user sees a fast response.
         if (best.length > 0) {
           setShapeSuggestion({
             strokeId,
             options: best,
-            mlPredictions: [],
             ...bbox,
             color: drawColor,
           });
         }
-
-        // ML recognition: slow (network round-trip to HF). When it
-        // returns, splice predictions into the open toast, or open the
-        // toast fresh if templates didn't match. If the user already
-        // dismissed (cur is null) we don't reopen for the same stroke.
-        void recognizeDrawing(pts).then((preds) => {
-          if (preds.length === 0) return;
-          setShapeSuggestion((cur) => {
-            if (cur && cur.strokeId === strokeId) {
-              return { ...cur, mlPredictions: preds.slice(0, 5) };
-            }
-            // Toast wasn't open. Only open it now if templates also
-            // didn't match (otherwise the user may have dismissed it).
-            if (cur === null && best.length === 0) {
-              return {
-                strokeId,
-                options: [],
-                mlPredictions: preds.slice(0, 5),
-                ...bbox,
-                color: drawColor,
-              };
-            }
-            return cur;
-          });
-        });
       }
       drawRef.current = null;
     }
@@ -1652,7 +1619,6 @@ export default function DesignStudio() {
       {shapeSuggestion && (
         <ShapeSuggestionToast
           options={shapeSuggestion.options}
-          mlPredictions={shapeSuggestion.mlPredictions}
           color={shapeSuggestion.color}
           onPick={(variant) => {
             const s = shapeSuggestion;
@@ -1674,36 +1640,6 @@ export default function DesignStudio() {
                   h: s.h,
                   rot: 0,
                   color: s.color,
-                }),
-            }));
-            setSelectedId(newId);
-            setShapeSuggestion(null);
-          }}
-          onPickText={(text) => {
-            const s = shapeSuggestion;
-            pushHistory();
-            const newId = makeId();
-            // Pick a font size that fills the stroke's height nicely.
-            const size = Math.max(
-              16,
-              Math.min(120, Math.round(s.h * 0.9))
-            );
-            setDesign((d) => ({
-              ...d,
-              elements: d.elements
-                .filter((el) => el.id !== s.strokeId)
-                .concat({
-                  id: newId,
-                  type: "text",
-                  text,
-                  x: s.cx,
-                  y: s.cy,
-                  size,
-                  color: s.color,
-                  font: FONTS[0].value,
-                  weight: "bold",
-                  italic: false,
-                  rot: 0,
                 }),
             }));
             setSelectedId(newId);
@@ -2086,25 +2022,15 @@ function PreviewModal({
  */
 function ShapeSuggestionToast({
   options,
-  mlPredictions,
   color,
   onPick,
-  onPickText,
   onDismiss,
 }: {
   options: ShapeMatch[];
-  mlPredictions: MLPrediction[];
   color: string;
   onPick: (variant: ShapeVariant) => void;
-  /** Called when the user taps a letter/word prediction — the studio
-   *  replaces the drawing with a text element. */
-  onPickText: (text: string) => void;
   onDismiss: () => void;
 }) {
-  // Split ML predictions into letters vs free-text labels.
-  const letters = mlPredictions.filter((p) => p.isText);
-  const labels = mlPredictions.filter((p) => !p.isText).slice(0, 4);
-
   return (
     <div className="fixed inset-x-0 bottom-24 z-40 mx-auto w-full max-w-md px-4">
       <div className="space-y-3 rounded-3xl bg-white p-4 shadow-2xl ring-1 ring-[var(--border)]">
@@ -2121,82 +2047,32 @@ function ShapeSuggestionToast({
           </button>
         </div>
 
-        {options.length > 0 && (
-          <div className="flex items-stretch gap-2">
-            {options.map((m) => (
-              <button
-                key={m.variant}
-                type="button"
-                onClick={() => onPick(m.variant)}
-                className="group flex flex-1 flex-col items-center justify-center gap-1 rounded-2xl bg-[var(--background)] p-2 ring-1 ring-[var(--border)] transition-all hover:-translate-y-0.5 hover:ring-[var(--primary)]"
-                title={SHAPE_LABELS[m.variant]}
-              >
-                <svg viewBox="0 0 100 100" className="h-12 w-12">
-                  <ShapeNode
-                    variant={m.variant}
-                    cx={50}
-                    cy={50}
-                    w={70}
-                    h={70}
-                    color={color}
-                    uid={`suggest-${m.variant}`}
-                  />
-                </svg>
-                <span className="text-[10px] font-semibold text-[var(--muted)] group-hover:text-[var(--primary)]">
-                  {SHAPE_LABELS[m.variant]}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {letters.length > 0 && (
-          <div>
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-              Looks like a letter
-            </p>
-            <div className="flex gap-2">
-              {letters.slice(0, 3).map((p) => (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => onPickText(p.label)}
-                  className="flex h-12 flex-1 items-center justify-center rounded-2xl bg-[var(--background)] text-2xl font-black ring-1 ring-[var(--border)] transition-all hover:-translate-y-0.5 hover:ring-[var(--primary)]"
-                  style={{ color }}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {labels.length > 0 && (
-          <div>
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-              AI guesses
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {labels.map((p) => (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => onPickText(p.label)}
-                  className="rounded-full bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white"
-                  title={`Add the word "${p.label}" as text`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {options.length === 0 && mlPredictions.length === 0 && (
-          <p className="text-center text-xs text-[var(--muted)]">
-            Thinking…
-          </p>
-        )}
+        <div className="flex items-stretch gap-2">
+          {options.map((m) => (
+            <button
+              key={m.variant}
+              type="button"
+              onClick={() => onPick(m.variant)}
+              className="group flex flex-1 flex-col items-center justify-center gap-1 rounded-2xl bg-[var(--background)] p-2 ring-1 ring-[var(--border)] transition-all hover:-translate-y-0.5 hover:ring-[var(--primary)]"
+              title={SHAPE_LABELS[m.variant]}
+            >
+              <svg viewBox="0 0 100 100" className="h-12 w-12">
+                <ShapeNode
+                  variant={m.variant}
+                  cx={50}
+                  cy={50}
+                  w={70}
+                  h={70}
+                  color={color}
+                  uid={`suggest-${m.variant}`}
+                />
+              </svg>
+              <span className="text-[10px] font-semibold text-[var(--muted)] group-hover:text-[var(--primary)]">
+                {SHAPE_LABELS[m.variant]}
+              </span>
+            </button>
+          ))}
+        </div>
 
         <button
           type="button"
