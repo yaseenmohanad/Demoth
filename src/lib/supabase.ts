@@ -10,26 +10,27 @@ import { createClient } from "@supabase/supabase-js";
  * create a separate client using the service_role key from a non-public
  * env var. We don't need that yet.
  */
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// Demoth's Supabase project. The anon key is *designed* to be public —
+// it ships in the client bundle either way, viewable by anyone who opens
+// DevTools. Real security comes from the Row Level Security policies in
+// supabase/schema.sql, which limit what the anon key can actually do.
+//
+// We prefer env vars when present (so local dev can override, and so we
+// can rotate keys in the future without a code change), but fall back
+// to these constants so the live build doesn't break when env vars
+// aren't wired up on the host.
+const FALLBACK_SUPABASE_URL = "https://kgjgyknhvoievnnrpxtc.supabase.co";
+const FALLBACK_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnamd5a25odm9pZXZubnJweHRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyMDQ0NTAsImV4cCI6MjA5NTc4MDQ1MH0.RUc0I4YE_YxCnEWXg722aAlZKt_U9KbdMM4kkNl-Qb0";
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  // Fail loudly in development; in production a missing key means we
-  // built without the env vars set (e.g. Netlify env not configured).
-  // The app should still render — we just won't be able to talk to the
-  // backend until the vars are present.
-  if (typeof window !== "undefined") {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "Supabase env vars not set — auth and database calls will fail. " +
-        "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY."
-    );
-  }
-}
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? FALLBACK_SUPABASE_URL;
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? FALLBACK_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(
-  supabaseUrl ?? "https://placeholder.supabase.co",
-  supabaseAnonKey ?? "placeholder-key",
+  supabaseUrl,
+  supabaseAnonKey,
   {
     auth: {
       // Persist the session in localStorage so the user stays signed in
@@ -41,5 +42,6 @@ export const supabase = createClient(
   }
 );
 
-/** Quick check: are env vars present? Used by UI to gate auth flows. */
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+/** Always true now that we have hardcoded fallback credentials. Kept
+ *  as an exported constant so call sites don't break. */
+export const isSupabaseConfigured = true;
