@@ -8,6 +8,11 @@ import type { DesignElement, GarmentType } from "./types";
 
 export interface DbProfile {
   id: string;
+  /** Unique handle used for sign-in. 3-20 chars, lowercase letters,
+   *  digits, underscore. Internally we derive an artificial email
+   *  (`<username>@demoth.local`) so Supabase Auth still gets a unique
+   *  email, but users never type or see it. */
+  username: string;
   name: string;
   description: string;
   avatar: string | null;

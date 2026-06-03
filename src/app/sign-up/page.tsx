@@ -28,7 +28,7 @@ function SignUpForm() {
   const next = params.get("next") || "/";
   const { signUp, signIn } = useAuth();
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,8 +37,9 @@ function SignUpForm() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
+    const cleanUsername = username.trim().toLowerCase();
     const { error: signUpErr } = await signUp(
-      email.trim(),
+      cleanUsername,
       password,
       name.trim()
     );
@@ -49,7 +50,7 @@ function SignUpForm() {
     }
     // With email confirmation off, sign-up auto-creates the session. But
     // defensive: also try signIn in case Supabase didn't return a session.
-    const { error: signInErr } = await signIn(email.trim(), password);
+    const { error: signInErr } = await signIn(cleanUsername, password);
     setSubmitting(false);
     if (signInErr) {
       setError(signInErr);
@@ -69,7 +70,7 @@ function SignUpForm() {
         </div>
         <h1 className="text-3xl font-bold">Create your account</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Free, no email confirmation needed.
+          Pick a username and password. No email needed.
         </p>
       </header>
 
@@ -94,16 +95,21 @@ function SignUpForm() {
 
         <label className="block">
           <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Email
+            Username
           </span>
           <input
-            type="email"
-            autoComplete="email"
+            type="text"
+            autoComplete="username"
             required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            pattern="[a-zA-Z0-9_]{3,20}"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="yourname"
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-soft)]"
           />
+          <span className="mt-1 block text-[10px] text-[var(--muted)]">
+            3-20 characters. Lowercase letters, numbers, and underscores only.
+          </span>
         </label>
 
         <label className="block">

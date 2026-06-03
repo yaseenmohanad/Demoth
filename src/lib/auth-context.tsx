@@ -23,21 +23,31 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
-  /** Email/password sign-up. Creates a new auth.users + profile. */
+  /** Username/password sign-up. Creates a new auth.users + profile.
+   *  Internally derives a fake unique email so Supabase Auth (which
+   *  insists on unique emails) can keep working — users never see it. */
   signUp: (
-    email: string,
+    username: string,
     password: string,
     name?: string
   ) => Promise<{ error: string | null }>;
-  /** Email/password sign-in. */
+  /** Username/password sign-in. */
   signIn: (
-    email: string,
+    username: string,
     password: string
   ) => Promise<{ error: string | null }>;
   /** Sign out of all sessions. */
   signOut: () => Promise<void>;
   /** Re-fetch the profile row (useful after a row update). */
   refreshProfile: () => Promise<void>;
+}
+
+/** Validate a username and turn it into the artificial email Supabase
+ *  Auth stores. Returns null if the username is malformed. */
+function usernameToEmail(username: string): string | null {
+  const u = username.trim().toLowerCase();
+  if (!/^[a-z0-9_]{3,20}$/.test(u)) return null;
+  return `${u}@demoth.local`;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -105,26 +115,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = useCallback(
-    async (email: string, password: string, name?: string) => {
+    async (username: string, password: string, name?: string) => {
+      const email = usernameToEmail(username);
+      if (!email) {
+        return {
+          error:
+            "Username must be 3-20 characters, only lowercase letters, digits, or underscore.",
+        };
+      }
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: name ? { name } : undefined,
+          // Carried through to the auto-create-profile trigger so the
+          // user's username and display name land in the profiles row.
+          data: { username: username.trim().toLowerCase(), name: name?.trim() },
         },
       });
-      if (error) return { error: error.message };
+      if (error) {
+        // Supabase says "User already registered" when the (fake) email
+        // is in use. Translate that to a username-friendly message.
+        if (/already registered/i.test(error.message)) {
+          return { error: "That username is taken. Try another." };
+        }
+        return { error: error.message };
+      }
       return { error: null };
     },
     []
   );
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (username: string, password: string) => {
+    const email = usernameToEmail(username);
+    if (!email) {
+      return { error: "Enter a valid username (letters, digits, underscore)." };
+    }
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    if (error) return { error: error.message };
+    if (error) {
+      // Supabase says "Invalid login credentials" when password is
+      // wrong OR account doesn't exist. Keep it generic so we don't
+      // leak which usernames exist.
+      if (/invalid login credentials/i.test(error.message)) {
+        return { error: "Username or password is incorrect." };
+      }
+      return { error: error.message };
+    }
     return { error: null };
   }, []);
 

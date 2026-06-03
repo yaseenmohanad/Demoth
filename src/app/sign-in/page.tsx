@@ -27,7 +27,7 @@ function SignInForm() {
   const params = useSearchParams();
   const next = params.get("next") || "/";
   const { signIn } = useAuth();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +36,7 @@ function SignInForm() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const { error: err } = await signIn(email.trim(), password);
+    const { error: err } = await signIn(username.trim(), password);
     setSubmitting(false);
     if (err) {
       setError(err);
@@ -66,14 +66,16 @@ function SignInForm() {
       >
         <label className="block">
           <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Email
+            Username
           </span>
           <input
-            type="email"
-            autoComplete="email"
+            type="text"
+            autoComplete="username"
             required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            pattern="[a-zA-Z0-9_]{3,20}"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="yourname"
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-soft)]"
           />
         </label>
