@@ -1,0 +1,25 @@
+{
+  // Cloudflare Workers config for the Demoth Next.js app, deployed via
+  // OpenNext (@opennextjs/cloudflare). Connected to Cloudflare via the
+  // dashboard's "Workers Builds" — the deploy command runs `wrangler
+  // deploy` which reads this file.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "demoth",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-04-01",
+  // Required by OpenNext — gives the worker access to Node-style globals
+  // (process, Buffer, etc.) so Next.js server code runs unchanged.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    // Forward asset requests that don't match a static file (e.g. /design)
+    // through to the worker so Next can route them.
+    "binding": "ASSETS"
+  },
+  // Vars listed here are read at runtime by the worker. Secrets / values
+  // that differ per environment (Supabase URL, anon key) are set in the
+  // Cloudflare dashboard under Workers → Demoth → Settings → Variables.
+  "observability": {
+    "enabled": true
+  }
+}
