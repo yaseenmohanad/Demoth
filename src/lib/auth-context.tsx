@@ -42,12 +42,21 @@ interface AuthContextValue extends AuthState {
   refreshProfile: () => Promise<void>;
 }
 
-/** Validate a username and turn it into the artificial email Supabase
- *  Auth stores. Returns null if the username is malformed. */
+/**
+ * Convert the user-typed "email" (which is really a username — accepts
+ * any letters/digits/dots/underscores/hyphens/@/+ between 3 and 50
+ * chars) into the artificial Supabase email used for auth. We replace
+ * `@` with `.at.` because email local parts can't contain `@`, but the
+ * result is still a deterministic 1:1 mapping so sign-in finds the
+ * same account every time.
+ *
+ * Returns null when the input doesn't pass the format check.
+ */
 function usernameToEmail(username: string): string | null {
   const u = username.trim().toLowerCase();
-  if (!/^[a-z0-9_]{3,20}$/.test(u)) return null;
-  return `${u}@demoth.local`;
+  if (!/^[a-z0-9._+@-]{3,50}$/.test(u)) return null;
+  const local = u.replace(/@/g, ".at.");
+  return `${local}@demoth.local`;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -120,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!email) {
         return {
           error:
-            "Username must be 3-20 characters, only lowercase letters, digits, or underscore.",
+            "Email must be 3-50 characters and only contain letters, digits, dot, underscore, @, +, or hyphen.",
         };
       }
       const { error } = await supabase.auth.signUp({
@@ -128,15 +137,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         options: {
           // Carried through to the auto-create-profile trigger so the
-          // user's username and display name land in the profiles row.
+          // user's chosen identifier and display name land in the
+          // profiles row.
           data: { username: username.trim().toLowerCase(), name: name?.trim() },
         },
       });
       if (error) {
-        // Supabase says "User already registered" when the (fake) email
-        // is in use. Translate that to a username-friendly message.
         if (/already registered/i.test(error.message)) {
-          return { error: "That username is taken. Try another." };
+          return { error: "That email is already taken. Try another." };
         }
         return { error: error.message };
       }
@@ -148,18 +156,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (username: string, password: string) => {
     const email = usernameToEmail(username);
     if (!email) {
-      return { error: "Enter a valid username (letters, digits, underscore)." };
+      return {
+        error: "Enter a valid email.",
+      };
     }
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     if (error) {
-      // Supabase says "Invalid login credentials" when password is
-      // wrong OR account doesn't exist. Keep it generic so we don't
-      // leak which usernames exist.
+      // Supabase returns the same error for "wrong password" and
+      // "account doesn't exist" by design (so attackers can't enumerate
+      // accounts). Pass that through with our own wording.
       if (/invalid login credentials/i.test(error.message)) {
-        return { error: "Username or password is incorrect." };
+        return { error: "Email or password is incorrect." };
       }
       return { error: error.message };
     }

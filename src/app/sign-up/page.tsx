@@ -70,7 +70,7 @@ function SignUpForm() {
         </div>
         <h1 className="text-3xl font-bold">Create your account</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Pick a username and password. No email needed.
+          Pick an email and password to get started.
         </p>
       </header>
 
@@ -95,20 +95,21 @@ function SignUpForm() {
 
         <label className="block">
           <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Username
+            Email
           </span>
           <input
             type="text"
             autoComplete="username"
             required
-            pattern="[a-zA-Z0-9_]{3,20}"
+            pattern="[a-zA-Z0-9._+@\-]{3,50}"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="yourname"
+            placeholder="you@example.com"
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-soft)]"
           />
           <span className="mt-1 block text-[10px] text-[var(--muted)]">
-            3-20 characters. Lowercase letters, numbers, and underscores only.
+            Letters, numbers, dot, underscore, @, +, or hyphen. Doesn&apos;t
+            have to be a real email — anything 3-50 chars works.
           </span>
         </label>
 

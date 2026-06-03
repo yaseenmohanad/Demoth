@@ -66,16 +66,16 @@ function SignInForm() {
       >
         <label className="block">
           <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Username
+            Email
           </span>
           <input
             type="text"
             autoComplete="username"
             required
-            pattern="[a-zA-Z0-9_]{3,20}"
+            pattern="[a-zA-Z0-9._+@\-]{3,50}"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="yourname"
+            placeholder="you@example.com"
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-soft)]"
           />
         </label>
