@@ -26,7 +26,7 @@ function SignUpForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/";
-  const { signUp, signIn } = useAuth();
+  const { signUp } = useAuth();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -43,19 +43,15 @@ function SignUpForm() {
       password,
       name.trim()
     );
+    setSubmitting(false);
     if (signUpErr) {
-      setSubmitting(false);
       setError(signUpErr);
       return;
     }
-    // With email confirmation off, sign-up auto-creates the session. But
-    // defensive: also try signIn in case Supabase didn't return a session.
-    const { error: signInErr } = await signIn(cleanUsername, password);
-    setSubmitting(false);
-    if (signInErr) {
-      setError(signInErr);
-      return;
-    }
+    // With email confirmation off, signUp returns a session directly —
+    // no follow-up signIn call needed. The redirect happens immediately
+    // and the onAuthStateChange listener in auth-context picks up the
+    // new session in the background.
     router.push(next);
   }
 

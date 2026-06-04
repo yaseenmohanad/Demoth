@@ -11,6 +11,12 @@ import {
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import type { DbProfile } from "./database.types";
+import {
+  getSavedAccounts,
+  upsertSavedAccount,
+  removeSavedAccount,
+  type SavedAccount,
+} from "./saved-accounts";
 
 interface AuthState {
   /** The auth.users record (id, email, etc.). null when signed out. */
@@ -36,10 +42,24 @@ interface AuthContextValue extends AuthState {
     username: string,
     password: string
   ) => Promise<{ error: string | null }>;
-  /** Sign out of all sessions. */
+  /** End the current session. The account stays saved on this device
+   *  in the switcher list so the user can hop back later without
+   *  retyping their password. */
   signOut: () => Promise<void>;
   /** Re-fetch the profile row (useful after a row update). */
   refreshProfile: () => Promise<void>;
+  /** All accounts that have signed in on this device, newest first.
+   *  Updated whenever the user signs in or signs out. */
+  savedAccounts: SavedAccount[];
+  /** Resume one of the saved accounts (e.g. user picked from the
+   *  switcher modal). Replaces the current session with the chosen
+   *  account's stored refresh token. */
+  switchAccount: (
+    accountId: string
+  ) => Promise<{ error: string | null }>;
+  /** Remove an account from this device's switcher list. The account
+   *  itself remains in Supabase — this just forgets the saved tokens. */
+  forgetAccount: (accountId: string) => void;
 }
 
 /**
@@ -86,6 +106,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<DbProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
+
+  /** Reads the saved-accounts list out of localStorage and pushes it
+   *  into state. Called after any mutation so the UI stays in sync. */
+  const refreshSaved = useCallback(() => {
+    setSavedAccounts(getSavedAccounts());
+  }, []);
+
+  /** Save the current session into the device's switcher list so the
+   *  user can hop back to this account later without re-entering the
+   *  password. */
+  const persistSession = useCallback(
+    async (session: Session, profileForSession: DbProfile | null) => {
+      const u = session.user;
+      const fallbackName =
+        (u.user_metadata as { name?: string })?.name ?? u.email ?? "Designer";
+      const fallbackUsername =
+        (u.user_metadata as { username?: string })?.username ??
+        (u.email ? u.email.split("@")[0] : "user");
+      upsertSavedAccount({
+        id: u.id,
+        username: profileForSession?.username ?? fallbackUsername,
+        name: profileForSession?.name ?? fallbackName,
+        avatar: profileForSession?.avatar ?? null,
+        accessToken: session.access_token,
+        refreshToken: session.refresh_token,
+        addedAt: Date.now(),
+      });
+      refreshSaved();
+    },
+    [refreshSaved]
+  );
 
   // Track auth changes throughout the app's lifetime.
   useEffect(() => {
@@ -96,10 +148,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       const sessionUser = session?.user ?? null;
       setUser(sessionUser);
-      if (sessionUser) {
+      if (sessionUser && session) {
         const p = await fetchProfile(sessionUser.id);
-        if (!cancelled) setProfile(p);
+        if (!cancelled) {
+          setProfile(p);
+          // Refresh the saved-account entry with the freshly loaded
+          // profile (so display name / avatar in the switcher stay
+          // up to date).
+          await persistSession(session, p);
+        }
       }
+      refreshSaved();
       if (!cancelled) setLoading(false);
     });
 
@@ -108,9 +167,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event: string, session: Session | null) => {
         const sessionUser = session?.user ?? null;
         setUser(sessionUser);
-        if (sessionUser) {
+        if (sessionUser && session) {
           const p = await fetchProfile(sessionUser.id);
           setProfile(p);
+          // SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED all keep the
+          // device list current. SIGNED_OUT doesn't reach this branch.
+          await persistSession(session, p);
         } else {
           setProfile(null);
         }
@@ -121,7 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [persistSession, refreshSaved]);
 
   const signUp = useCallback(
     async (username: string, password: string, name?: string) => {
@@ -177,8 +239,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // The saved-account entry persists — leaving the user able to
+    // switch back from the Profile page's account switcher without
+    // re-typing credentials. The Supabase session itself is cleared.
     await supabase.auth.signOut();
-  }, []);
+    refreshSaved();
+  }, [refreshSaved]);
+
+  const switchAccount = useCallback(
+    async (accountId: string) => {
+      const target = getSavedAccounts().find((a) => a.id === accountId);
+      if (!target) {
+        return { error: "That account isn't saved on this device." };
+      }
+      // setSession swaps the active session in place. We don't need to
+      // signOut first — Supabase replaces the stored tokens.
+      const { error } = await supabase.auth.setSession({
+        access_token: target.accessToken,
+        refresh_token: target.refreshToken,
+      });
+      if (error) {
+        // Token expired or the account was deleted server-side. Drop
+        // the dead entry so the switcher doesn't keep offering it.
+        if (
+          /refresh.*invalid|jwt expired|not found/i.test(error.message)
+        ) {
+          removeSavedAccount(accountId);
+          refreshSaved();
+        }
+        return { error: error.message };
+      }
+      return { error: null };
+    },
+    [refreshSaved]
+  );
+
+  const forgetAccount = useCallback(
+    (accountId: string) => {
+      removeSavedAccount(accountId);
+      refreshSaved();
+    },
+    [refreshSaved]
+  );
 
   const refreshProfile = useCallback(async () => {
     if (!user) {
@@ -197,6 +299,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signOut,
     refreshProfile,
+    savedAccounts,
+    switchAccount,
+    forgetAccount,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
