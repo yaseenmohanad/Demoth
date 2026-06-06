@@ -55,6 +55,9 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import ColorWheelButton from "@/components/ColorWheelButton";
 import { displayName } from "@/lib/format";
 import { elementTransform } from "@/lib/element-transform";
+import { publishDesign, unpublishDesign } from "@/lib/marketplace";
+import { useAuth } from "@/lib/auth-context";
+import { StorefrontIcon } from "@/components/Icons";
 
 const VB_W = 400;
 const VB_H = 500;
@@ -1229,6 +1232,60 @@ export default function DesignStudio() {
     setTimeout(() => setSavedFlash(false), 1200);
   }
 
+  // ---- publish to marketplace ----
+  // Push the current design out to Browse so other people can buy it.
+  // Always saves locally first so the local copy matches what's on
+  // the marketplace. The Supabase row owns its own UUID; we mirror
+  // that back into the local design as `publishedId` so subsequent
+  // publishes update the same row instead of creating duplicates.
+  const { user: authUser } = useAuth();
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  async function handlePublish() {
+    if (publishBusy) return;
+    setPublishError(null);
+    setPublishBusy(true);
+    // Save locally first so the published copy can never be ahead of
+    // the local one — and so design.publishedId we write below
+    // survives a refresh.
+    saveDesign(design);
+    setSavedSnapshot(JSON.stringify(design));
+    const { publishedId, error } = await publishDesign(design);
+    setPublishBusy(false);
+    if (error) {
+      setPublishError(error);
+      return;
+    }
+    if (publishedId) {
+      const next: Design = {
+        ...design,
+        publishedId,
+        isPublished: true,
+        updatedAt: Date.now(),
+      };
+      setDesign(next);
+      saveDesign(next);
+      setSavedSnapshot(JSON.stringify(next));
+    }
+  }
+
+  async function handleUnpublish() {
+    if (publishBusy || !design.publishedId) return;
+    setPublishError(null);
+    setPublishBusy(true);
+    const { error } = await unpublishDesign(design.publishedId);
+    setPublishBusy(false);
+    if (error) {
+      setPublishError(error);
+      return;
+    }
+    const next: Design = { ...design, isPublished: false, updatedAt: Date.now() };
+    setDesign(next);
+    saveDesign(next);
+    setSavedSnapshot(JSON.stringify(next));
+  }
+
   // ---- garment picker (only for brand new designs) ----
   if (!garmentChosen && !idParam) {
     return (
@@ -1294,6 +1351,34 @@ export default function DesignStudio() {
           >
             <TrashIcon size={18} />
           </button>
+          {/* Publish toggle. Sits right next to Save so users can
+              flip a finished design out to Browse without leaving the
+              editor. Disabled when not signed in (the marketplace
+              needs an author) or while the round-trip is in flight. */}
+          <button
+            type="button"
+            onClick={design.isPublished ? handleUnpublish : handlePublish}
+            disabled={publishBusy || !authUser}
+            title={
+              !authUser
+                ? "Sign in to publish your designs"
+                : design.isPublished
+                ? "Remove this design from Browse"
+                : "Make this design visible in Browse"
+            }
+            className={`ml-1 flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              design.isPublished
+                ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                : "bg-white text-[var(--foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+            }`}
+          >
+            <StorefrontIcon size={16} />
+            {publishBusy
+              ? "…"
+              : design.isPublished
+              ? "Listed"
+              : "Publish"}
+          </button>
           <button
             onClick={handleSave}
             className="ml-1 flex items-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[var(--primary-strong)]"
@@ -1303,6 +1388,21 @@ export default function DesignStudio() {
           </button>
         </div>
       </header>
+
+      {/* Publish errors show up here briefly so the toolbar button
+          can stay compact. */}
+      {publishError && (
+        <div className="rounded-2xl bg-red-50 px-3 py-2 text-xs text-red-700 ring-1 ring-red-200">
+          {publishError}
+          <button
+            type="button"
+            onClick={() => setPublishError(null)}
+            className="ml-2 underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Garment color row */}
       <div className="flex items-center gap-2 overflow-x-auto rounded-2xl bg-white p-3 ring-1 ring-[var(--border)]">

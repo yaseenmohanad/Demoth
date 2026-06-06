@@ -1,109 +1,94 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAppState, useHydrated, addDelivery } from "@/lib/store";
+import { ORDER_PRICE } from "@/lib/types";
+import { useAuth } from "@/lib/auth-context";
 import {
-  useAppState,
-  useHydrated,
-  addDelivery,
-  makeId,
-} from "@/lib/store";
-import { ORDER_PRICE, type Design, type MockUser } from "@/lib/types";
-import { displayName } from "@/lib/format";
+  listPublishedDesigns,
+  listingToDesign,
+  buyListing,
+  type MarketplaceListing,
+} from "@/lib/marketplace";
 import DesignPreview from "@/components/DesignPreview";
 import Avatar from "@/components/Avatar";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import PremiumModal from "@/components/PremiumModal";
 import {
-  StorefrontIcon,
   SparkleIcon,
   PlusIcon,
   TruckIcon,
+  SpinnerIcon,
 } from "@/components/Icons";
-import Logo from "@/components/Logo";
 
-interface Listing {
-  design: Design;
-  seller: MockUser;
-}
-
+/**
+ * Browse — the real marketplace. Reads published designs from Supabase
+ * (joined with their author's profile) and lets the signed-in user
+ * buy any of them. Buying writes a deliveries row in Supabase + a
+ * mirrored local-state delivery so the Deliveries page also reflects
+ * the purchase without an extra round-trip.
+ *
+ * Unsigned users can browse but not buy — we surface a sign-in CTA
+ * instead of the buy button in that state.
+ */
 export default function OtherDesignsPage() {
-  const { profile, mockUsers } = useAppState();
+  const { profile } = useAppState();
   const hydrated = useHydrated();
-  const [premiumOpen, setPremiumOpen] = useState(false);
-  const [pendingBuy, setPendingBuy] = useState<Listing | null>(null);
+  const { user: authUser } = useAuth();
+
+  const [listings, setListings] = useState<MarketplaceListing[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pendingBuy, setPendingBuy] = useState<MarketplaceListing | null>(null);
+  const [buying, setBuying] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
   const [bought, setBought] = useState<Set<string>>(new Set());
 
-  // Flatten all mock users' designs into a single marketplace feed,
-  // newest first.
-  const listings: Listing[] = useMemo(() => {
-    const rows: Listing[] = [];
-    for (const u of mockUsers) {
-      for (const d of u.designs) {
-        rows.push({ design: d, seller: u });
+  // Fetch the marketplace once on mount. We don't subscribe to real-
+  // time changes yet — published designs don't churn that fast for a
+  // school project — so a manual refresh after publishing is on the
+  // user. Browse re-mounts every time it's navigated to anyway.
+  useEffect(() => {
+    let cancelled = false;
+    listPublishedDesigns().then(({ listings: rows, error }) => {
+      if (cancelled) return;
+      if (error) {
+        setLoadError(error);
+        setLoading(false);
+        return;
       }
-    }
-    rows.sort((a, b) => b.design.updatedAt - a.design.updatedAt);
-    return rows;
-  }, [mockUsers]);
-
-  function confirmBuy() {
-    if (!pendingBuy) return;
-    const label = displayName(pendingBuy.design, [pendingBuy.design]);
-    addDelivery({
-      id: makeId(),
-      designId: pendingBuy.design.id,
-      designName: `${label} (from ${pendingBuy.seller.name})`,
-      status: "pending",
-      createdAt: Date.now(),
-      price: ORDER_PRICE,
+      setListings(rows);
+      setLoading(false);
     });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function confirmBuy() {
+    if (!pendingBuy || buying) return;
+    setBuyError(null);
+    setBuying(true);
+    const { error, localDelivery } = await buyListing(pendingBuy);
+    setBuying(false);
+    if (error) {
+      setBuyError(error);
+      return;
+    }
+    if (localDelivery) {
+      // Dual-write the buyer-side copy into localStorage so the
+      // Deliveries page (which still reads from the per-user
+      // localStorage bucket) shows the order immediately.
+      addDelivery(localDelivery);
+    }
     setBought((prev) => {
       const next = new Set(prev);
-      next.add(pendingBuy.design.id);
+      next.add(pendingBuy.id);
       return next;
     });
     setPendingBuy(null);
   }
 
-  // ----- not-yet-premium paywall -----
-  if (hydrated && !profile.premium) {
-    return (
-      <div className="space-y-6">
-        <header>
-          <p className="text-xs uppercase tracking-widest text-[var(--muted)]">
-            Browse
-          </p>
-          <h1 className="mt-1 text-3xl font-bold">Other designs</h1>
-        </header>
-
-        <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-amber-50 via-fuchsia-50 to-violet-50 p-6 text-center shadow-sm ring-1 ring-[var(--border)]">
-          <div className="mx-auto flex justify-center">
-            <Logo size={64} />
-          </div>
-          <h2 className="mt-4 text-xl font-bold">Premium only</h2>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-[var(--muted)]">
-            Browsing and buying designs from the community is part of
-            Demoth Premium. Activate it to unlock this tab plus
-            auto-correct while designing.
-          </p>
-          <button
-            onClick={() => setPremiumOpen(true)}
-            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 via-fuchsia-500 to-violet-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition-transform hover:scale-[1.02]"
-          >
-            <SparkleIcon size={16} /> Get Premium
-          </button>
-        </section>
-
-        <PremiumModal
-          open={premiumOpen}
-          onClose={() => setPremiumOpen(false)}
-        />
-      </div>
-    );
-  }
-
-  // ----- premium marketplace -----
   return (
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-3">
@@ -113,61 +98,95 @@ export default function OtherDesignsPage() {
           </p>
           <h1 className="mt-1 text-3xl font-bold">Other designs</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Order shirts designed by other people. ${ORDER_PRICE.toFixed(2)} each.
+            Shirts designed by other people. ${ORDER_PRICE.toFixed(2)} each.
           </p>
         </div>
-        <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-400 to-fuchsia-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-white shadow-sm">
-          <SparkleIcon size={12} /> Premium
-        </span>
+        {hydrated && profile.premium && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-400 to-fuchsia-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-white shadow-sm">
+            <SparkleIcon size={12} /> Premium
+          </span>
+        )}
       </header>
 
-      {!hydrated || listings.length === 0 ? (
+      {loading ? (
+        <div className="grid place-items-center rounded-2xl bg-white px-4 py-12 text-sm text-[var(--muted)] ring-1 ring-[var(--border)]">
+          <SpinnerIcon size={24} />
+        </div>
+      ) : loadError ? (
+        <p className="rounded-2xl bg-red-50 px-4 py-8 text-center text-sm text-red-700 ring-1 ring-red-200">
+          Couldn&apos;t load the marketplace: {loadError}
+        </p>
+      ) : listings.length === 0 ? (
         <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-[var(--muted)] ring-1 ring-[var(--border)]">
-          No designs from the community yet.{" "}
-          <Link href="/" className="text-[var(--primary)] underline">
-            Back home
+          Nobody&apos;s published a design yet. Hit{" "}
+          <strong>Publish</strong> in the editor to be the first.{" "}
+          <Link href="/design" className="text-[var(--primary)] underline">
+            Open the editor
           </Link>
         </p>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {listings.map(({ design, seller }) => {
-            const label = displayName(design, [design]);
-            const isBought = bought.has(design.id);
+          {listings.map((listing) => {
+            // Don't sell someone their own design. Show "Your design"
+            // instead of the buy button so the marketplace doesn't
+            // feel like it's stalking them.
+            const isMine = !!authUser && authUser.id === listing.author.id;
+            const isBought = bought.has(listing.id);
             return (
               <li
-                key={design.id}
+                key={listing.id}
                 className="overflow-hidden rounded-2xl bg-white p-2 shadow-sm ring-1 ring-[var(--border)]"
               >
                 <div className="overflow-hidden rounded-xl bg-[var(--background)]">
-                  <DesignPreview design={design} className="h-40 w-full" />
+                  <DesignPreview
+                    design={listingToDesign(listing)}
+                    className="h-40 w-full"
+                  />
                 </div>
                 <div className="mt-2 flex items-center gap-2 px-1">
-                  <Avatar name={seller.name} size={20} />
+                  <Avatar
+                    name={listing.author.name}
+                    src={listing.author.avatar}
+                    size={20}
+                  />
                   <p className="truncate text-[11px] text-[var(--muted)]">
-                    by {seller.name}
+                    by {listing.author.name}
                   </p>
                 </div>
                 <p className="mt-0.5 truncate px-1 text-sm font-semibold">
-                  {label}
+                  {listing.name || "Untitled design"}
                 </p>
                 <div className="mt-2 flex items-center gap-2 px-1 pb-1">
                   <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-xs font-bold">
                     ${ORDER_PRICE.toFixed(2)}
                   </span>
-                  <button
-                    onClick={() => setPendingBuy({ design, seller })}
-                    className="ml-auto flex items-center gap-1 rounded-lg bg-[var(--primary)] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[var(--primary-strong)]"
-                  >
-                    {isBought ? (
-                      <>
-                        <TruckIcon size={12} /> Order again
-                      </>
-                    ) : (
-                      <>
-                        <PlusIcon size={12} /> Buy
-                      </>
-                    )}
-                  </button>
+                  {isMine ? (
+                    <span className="ml-auto rounded-lg bg-[var(--background)] px-2.5 py-1 text-xs font-semibold text-[var(--muted)]">
+                      Your design
+                    </span>
+                  ) : !authUser ? (
+                    <Link
+                      href="/sign-in?next=/other-designs"
+                      className="ml-auto flex items-center gap-1 rounded-lg bg-[var(--primary)] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[var(--primary-strong)]"
+                    >
+                      <PlusIcon size={12} /> Sign in to buy
+                    </Link>
+                  ) : (
+                    <button
+                      onClick={() => setPendingBuy(listing)}
+                      className="ml-auto flex items-center gap-1 rounded-lg bg-[var(--primary)] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[var(--primary-strong)]"
+                    >
+                      {isBought ? (
+                        <>
+                          <TruckIcon size={12} /> Order again
+                        </>
+                      ) : (
+                        <>
+                          <PlusIcon size={12} /> Buy
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </li>
             );
@@ -177,23 +196,26 @@ export default function OtherDesignsPage() {
 
       <ConfirmDialog
         open={!!pendingBuy}
-        title={
-          pendingBuy
-            ? `Buy "${displayName(pendingBuy.design, [pendingBuy.design])}"?`
-            : ""
-        }
+        title={pendingBuy ? `Buy "${pendingBuy.name || "Untitled"}"?` : ""}
         message={
           pendingBuy && (
             <>
-              By <strong>{pendingBuy.seller.name}</strong>. Total:{" "}
-              <strong>${ORDER_PRICE.toFixed(2)}</strong>. We&apos;ll add the
-              order to your Deliveries.
+              By <strong>{pendingBuy.author.name}</strong>. Total:{" "}
+              <strong>${ORDER_PRICE.toFixed(2)}</strong>.
+              {buyError && (
+                <span className="mt-2 block rounded-lg bg-red-50 px-2 py-1 text-xs text-red-700">
+                  {buyError}
+                </span>
+              )}
             </>
           )
         }
-        confirmLabel="Place order"
+        confirmLabel={buying ? "Placing…" : "Place order"}
         onConfirm={confirmBuy}
-        onCancel={() => setPendingBuy(null)}
+        onCancel={() => {
+          setPendingBuy(null);
+          setBuyError(null);
+        }}
       />
     </div>
   );

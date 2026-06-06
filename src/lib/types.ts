@@ -95,6 +95,18 @@ export interface Design {
   elements: DesignElement[];
   createdAt: number;
   updatedAt: number;
+  /** Supabase UUID for this design's row in the marketplace `designs`
+   *  table, once it's been published at least once. Used to update
+   *  the same row on republish (instead of creating duplicates) and
+   *  to know which row to flip to `published=false` on unpublish.
+   *  Absent for designs that have never been published. */
+  publishedId?: string;
+  /** Local cache of "is this design currently listed in Browse?".
+   *  Mirrors the Supabase `published` column at the last publish/
+   *  unpublish moment. Not authoritative — a friend or admin could
+   *  flip the DB row out from under us — but good enough to render
+   *  the right toggle in the editor. */
+  isPublished?: boolean;
 }
 
 export interface Profile {
