@@ -353,9 +353,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return { error: error.message };
       }
+
+      // Don't rely on onAuthStateChange to fire here — some supabase-js
+      // versions skip it when setSession was effectively a no-op refresh.
+      // Re-read the session and update everything explicitly so the UI
+      // is guaranteed to flip to the new account immediately.
+      const { data: sessData } = await supabase.auth.getSession();
+      const newSession = sessData.session;
+      if (newSession?.user) {
+        setUser(newSession.user);
+        setActiveUser(newSession.user.id);
+        const p = await fetchProfile(newSession.user.id);
+        setProfile(p);
+        await persistSession(newSession, p);
+      }
       return { error: null };
     },
-    [refreshSaved]
+    [refreshSaved, persistSession]
   );
 
   const forgetAccount = useCallback(

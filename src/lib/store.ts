@@ -12,28 +12,34 @@ import type {
 import { ORDER_PRICE } from "./types";
 import { strokeBBox } from "./element-transform";
 
-/** Pre-account-system localStorage key. We still read from here once
- *  per user as a migration source — the first account that signs in on
- *  a device inherits whatever data was previously here so existing
- *  users don't lose their designs. After that we always use the
- *  per-user key below. */
+/** Pre-account-system localStorage key. Claimed once by the first
+ *  signed-in user on a device and then deleted, so pre-existing data
+ *  carries forward without leaking to other accounts. After that this
+ *  key never gets touched again. */
 const LEGACY_STORAGE_KEY = "demoth.state.v1";
+
+/** Storage bucket used when nobody is signed in. Starts empty — we
+ *  don't want signed-out users to see another account's data, so the
+ *  guest bucket is intentionally separate from both the legacy bucket
+ *  and any per-user bucket. */
+const GUEST_STORAGE_KEY = "demoth.state.v1.guest";
 
 /** Which Supabase user the store is currently scoped to. Set via
  *  {@link setActiveUser} whenever auth changes. `null` = signed-out /
- *  guest, which reads/writes the legacy key (so a brand-new visitor
- *  sees the marketing/seed data and can poke around before signing in).
+ *  guest.
  *  This is intentionally a module-level mutable — `useSyncExternalStore`
  *  treats it as part of the store's external state. */
 let activeUserId: string | null = null;
 
 /** Compute the localStorage key for the current active user. Each
  *  signed-in user gets their own bucket of designs / profile /
- *  deliveries, so switching accounts shows different data. */
+ *  deliveries, so switching accounts shows different data. Signed-out
+ *  users land in a separate guest bucket so they can't see a previous
+ *  account's data. */
 function currentStorageKey(): string {
   return activeUserId
     ? `demoth.state.v1.user.${activeUserId}`
-    : LEGACY_STORAGE_KEY;
+    : GUEST_STORAGE_KEY;
 }
 
 // ---- mock seed (other users for admin demo) ----------------------------
@@ -239,15 +245,22 @@ function loadFromStorage(): AppState {
   if (typeof window === "undefined") return defaultState;
   try {
     const key = currentStorageKey();
-    let raw = window.localStorage.getItem(key);
-    // First sign-in on a device migrates the legacy per-device store
-    // into this user's bucket — so existing users don't lose their
-    // designs when accounts ship. Once seeded, the user has their own
-    // bucket from then on; subsequent users start with empty state.
-    if (!raw && activeUserId) {
+    // One-time legacy migration. The pre-account-system app used a
+    // single shared localStorage key. The first user to sign in on
+    // this device after the account update inherits that data; we
+    // immediately delete the legacy key so subsequent users (and the
+    // guest bucket) don't see the same data. This is what makes
+    // "switching accounts" actually show different state — without
+    // the delete, every empty user bucket falls back to the same
+    // legacy blob.
+    if (activeUserId && !window.localStorage.getItem(key)) {
       const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY);
-      if (legacy) raw = legacy;
+      if (legacy) {
+        window.localStorage.setItem(key, legacy);
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
     }
+    const raw = window.localStorage.getItem(key);
     if (!raw) return defaultState;
     const parsed = JSON.parse(raw) as Partial<AppState>;
     return {

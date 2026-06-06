@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["-y", "http-server", "C:/Users/QK/windows12", "-p", "5599", "-c-1"],
       "port": 5599
+    },
+    {
+      "name": "demoth",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
     }
   ]
 }
