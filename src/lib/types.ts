@@ -108,6 +108,15 @@ export interface Profile {
   /** When premium is active, auto-correct text typing and smooth
    *  drawings on stroke release. Toggleable in Settings. */
   autoCorrect?: boolean;
+  /** Whether other people can find this user in the Friends directory
+   *  and send them a friend request. Defaults to true so new accounts
+   *  are discoverable; users can opt out from Settings if they want
+   *  to be left alone. */
+  showOnFriends?: boolean;
+  /** Premium-gated: whether the user lets their accepted friends
+   *  see the wardrobe (their saved designs) from the friends list.
+   *  Defaults to false — sharing is opt-in. */
+  shareWardrobe?: boolean;
 }
 
 export type DeliveryStatus = "pending" | "shipped" | "delivered" | "cancelled";

@@ -10,11 +10,8 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import Avatar from "@/components/Avatar";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import PremiumModal from "@/components/PremiumModal";
-import AccountSwitcherModal from "@/components/AccountSwitcherModal";
 import Logo from "@/components/Logo";
-import { useAuth } from "@/lib/auth-context";
-import { TrashIcon, UploadIcon } from "@/components/Icons";
-import { useRouter } from "next/navigation";
+import { SettingsIcon, TrashIcon, UploadIcon } from "@/components/Icons";
 
 /** Read a File as a data URL so we can hand it to the avatar crop modal. */
 function fileToDataUrl(file: File): Promise<string> {
@@ -38,11 +35,7 @@ export default function ProfilePage() {
   /** Original (un-cropped) image data URL while the crop modal is open. */
   const [pendingAvatarSrc, setPendingAvatarSrc] = useState<string | null>(null);
   const [premiumOpen, setPremiumOpen] = useState(false);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const { user: authUser, savedAccounts, signOut } = useAuth();
-  const router = useRouter();
 
   async function onAvatarFileChosen(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -70,12 +63,22 @@ export default function ProfilePage() {
           </div>
           <h1 className="mt-3 text-3xl font-bold">Your account</h1>
         </div>
-        <Link
-          href="/admin"
-          className="rounded-xl bg-[var(--primary-soft)] px-3 py-2 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-soft)] hover:bg-[var(--primary)] hover:text-white"
-        >
-          Admin panel
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/profile/settings"
+            className="grid h-9 w-9 place-items-center rounded-xl bg-white text-[var(--muted)] ring-1 ring-[var(--border)] hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <SettingsIcon size={18} />
+          </Link>
+          <Link
+            href="/admin"
+            className="rounded-xl bg-[var(--primary-soft)] px-3 py-2 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-soft)] hover:bg-[var(--primary)] hover:text-white"
+          >
+            Admin panel
+          </Link>
+        </div>
       </header>
 
       {/* Profile card */}
@@ -144,43 +147,6 @@ export default function ProfilePage() {
         )}
       </section>
 
-      {/* Account controls (sign out + switch). Only shown when actually
-          signed in — the localStorage-only profile experience doesn't
-          have these. */}
-      {authUser && (
-        <section className="space-y-2 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--border)]">
-          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Account
-          </p>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => setSwitcherOpen(true)}
-              className="flex-1 rounded-xl bg-[var(--primary-soft)] px-3 py-2 text-sm font-semibold text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white"
-            >
-              Switch account
-              {savedAccounts.length > 1 && (
-                <span className="ml-1 text-[10px] font-bold opacity-70">
-                  ({savedAccounts.length})
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSignOutConfirmOpen(true)}
-              className="flex-1 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--foreground)]"
-            >
-              Sign out
-            </button>
-          </div>
-          <p className="text-[10px] text-[var(--muted)]">
-            Signing out ends this session. Your account is kept on this
-            device — pick it again from <strong>Switch account</strong> to
-            sign back in without re-entering your password.
-          </p>
-        </section>
-      )}
-
       {/* Premium / Settings */}
       {hydrated && !profile.premium && (
         <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-amber-50 via-fuchsia-50 to-violet-50 p-5 shadow-sm ring-1 ring-[var(--border)]">
@@ -199,47 +165,6 @@ export default function ProfilePage() {
               Get Premium
             </button>
           </div>
-        </section>
-      )}
-
-      {hydrated && profile.premium && (
-        <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--border)]">
-          <div className="flex items-center gap-2">
-            <Logo size={24} />
-            <p className="text-sm font-bold">Premium settings</p>
-            <span className="ml-auto rounded-full bg-gradient-to-r from-amber-400 to-fuchsia-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white">
-              Active
-            </span>
-          </div>
-
-          <label className="flex cursor-pointer items-center gap-3 rounded-2xl bg-[var(--background)] p-3 ring-1 ring-[var(--border)]">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-[var(--primary)]"
-              checked={profile.autoCorrect ?? true}
-              onChange={(e) =>
-                updateProfile({ autoCorrect: e.target.checked })
-              }
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold">Auto-correct</span>
-              <span className="block text-[11px] text-[var(--muted)]">
-                Fix common typos while you type and smooth out hand-drawn
-                strokes when you finish drawing.
-              </span>
-            </span>
-          </label>
-
-          <button
-            onClick={() => {
-              if (confirm("Turn premium off? You can re-activate any time.")) {
-                updateProfile({ premium: false });
-              }
-            }}
-            className="text-xs text-[var(--muted)] hover:text-red-600"
-          >
-            Turn premium off
-          </button>
         </section>
       )}
 
@@ -341,24 +266,6 @@ export default function ProfilePage() {
       <PremiumModal
         open={premiumOpen}
         onClose={() => setPremiumOpen(false)}
-      />
-
-      <AccountSwitcherModal
-        open={switcherOpen}
-        onClose={() => setSwitcherOpen(false)}
-      />
-
-      <ConfirmDialog
-        open={signOutConfirmOpen}
-        title="Sign out?"
-        message="You'll end this session. Your account stays on this device so you can sign back in from the switcher without re-typing your password."
-        confirmLabel="Sign out"
-        onConfirm={async () => {
-          setSignOutConfirmOpen(false);
-          await signOut();
-          router.push("/sign-in");
-        }}
-        onCancel={() => setSignOutConfirmOpen(false)}
       />
     </div>
   );
