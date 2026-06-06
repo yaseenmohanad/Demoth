@@ -302,20 +302,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
     const email = handleToEmail(base);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) {
-      // Supabase returns the same error for "wrong password" and
-      // "account doesn't exist" by design (so attackers can't enumerate
-      // accounts). Pass that through with our own wording.
-      if (/invalid login credentials/i.test(error.message)) {
-        return { error: "Email or password is incorrect." };
-      }
-      return { error: error.message };
+
+    // First try the exact email they typed (almost always the right
+    // account for first-time signups and the common case overall).
+    const first = await supabase.auth.signInWithPassword({ email, password });
+    if (!first.error) return { error: null };
+
+    // Fallback: maybe the user's real account is the *suffixed* variant
+    // of this email (someone else snagged the bare email first and
+    // they got "-x7k2" appended at sign-up). Ask the find-account
+    // RPC to scan suffixed siblings and report back which one (if
+    // any) matches the typed password. The RPC returns null when no
+    // account verifies, so this is the password-correct-but-wrong-
+    // email case only — wrong-password attempts fall through to the
+    // original error.
+    const { data: foundEmail, error: rpcErr } = await supabase.rpc(
+      "find_account_by_password",
+      { p_handle_prefix: base, p_password: password }
+    );
+
+    if (!rpcErr && typeof foundEmail === "string" && foundEmail.length > 0) {
+      // Re-attempt sign-in with the suffixed email we just resolved.
+      const retry = await supabase.auth.signInWithPassword({
+        email: foundEmail,
+        password,
+      });
+      if (!retry.error) return { error: null };
+      // Fall through to the original error if even the resolved email
+      // somehow fails (e.g., the user was deleted between the RPC
+      // call and now).
     }
-    return { error: null };
+
+    // Either no suffixed match exists, or the RPC itself failed
+    // (probably "function does not exist" if the migration hasn't
+    // been run yet — fall back to the standard auth message).
+    if (/invalid login credentials/i.test(first.error.message)) {
+      return { error: "Email or password is incorrect." };
+    }
+    return { error: first.error.message };
   }, []);
 
   const signOut = useCallback(async () => {
