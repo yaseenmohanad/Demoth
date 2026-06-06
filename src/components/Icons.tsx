@@ -259,3 +259,23 @@ export function ArrowLeftIcon({ size = 24, ...p }: IconProps) {
     </svg>
   );
 }
+
+export function UsersIcon({ size = 24, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="8.5" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+export function InboxIcon({ size = 24, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+      <path d="M5.5 5h13l3.5 7v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7l3.5-7Z" />
+    </svg>
+  );
+}

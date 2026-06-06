@@ -7,6 +7,7 @@ import {
   BrushIcon,
   TruckIcon,
   UserIcon,
+  UsersIcon,
   StorefrontIcon,
 } from "./Icons";
 import Avatar from "./Avatar";
@@ -17,6 +18,7 @@ const items = [
   { href: "/design", label: "Design", Icon: BrushIcon, match: (p: string) => p.startsWith("/design") },
   { href: "/deliveries", label: "Deliveries", Icon: TruckIcon, match: (p: string) => p.startsWith("/deliveries") },
   { href: "/other-designs", label: "Browse", Icon: StorefrontIcon, match: (p: string) => p.startsWith("/other-designs") },
+  { href: "/friends", label: "Friends", Icon: UsersIcon, match: (p: string) => p.startsWith("/friends") },
   { href: "/profile", label: "Profile", Icon: UserIcon, match: (p: string) => p.startsWith("/profile") },
 ];
 

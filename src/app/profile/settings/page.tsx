@@ -5,10 +5,31 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useAppState, useHydrated, updateProfile } from "@/lib/store";
+import { supabase } from "@/lib/supabase";
 import { ArrowLeftIcon, SettingsIcon } from "@/components/Icons";
 import Logo from "@/components/Logo";
 import AccountSwitcherModal from "@/components/AccountSwitcherModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
+
+/**
+ * Mirror a privacy/wardrobe toggle to the Supabase profiles row when
+ * the user's signed in. We always update localStorage (so the UI is
+ * snappy and works signed-out for guests), then fire off the DB
+ * update in the background so the Friends directory and the
+ * share_wardrobe RLS rule see the same value.
+ *
+ * Network failures are intentionally swallowed — the localStorage
+ * write is the source of truth for guests, and a transient Supabase
+ * blip shouldn't visibly fail the toggle. Worst case the two get
+ * out of sync until the next toggle.
+ */
+function pushProfileFlagToDb(
+  userId: string | undefined,
+  patch: Record<string, unknown>
+) {
+  if (!userId) return;
+  void supabase.from("profiles").update(patch).eq("id", userId);
+}
 
 /**
  * Profile → Settings sub-page. Centralises every "knob" the user can
@@ -76,7 +97,12 @@ export default function SettingsPage() {
           label="Show me on Friends"
           description="When on, other people can find you in the Friends directory and send you a friend request. Turn off to be invisible — nobody can request you, but you can still see your existing friends."
           checked={hydrated ? showOnFriends : true}
-          onChange={(next) => updateProfile({ showOnFriends: next })}
+          onChange={(next) => {
+            updateProfile({ showOnFriends: next });
+            // Mirror to Supabase so the Friends directory query (which
+            // filters by profiles.show_on_friends) sees the new value.
+            pushProfileFlagToDb(authUser?.id, { show_on_friends: next });
+          }}
         />
       </Section>
 
@@ -102,7 +128,13 @@ export default function SettingsPage() {
             label="Share my wardrobe with friends"
             description="When on, accepted friends can see your saved designs from your profile in the Friends list."
             checked={shareWardrobe}
-            onChange={(next) => updateProfile({ shareWardrobe: next })}
+            onChange={(next) => {
+              updateProfile({ shareWardrobe: next });
+              // Mirror to Supabase so the designs_select RLS rule
+              // can grant friend-only access to the user's private
+              // designs.
+              pushProfileFlagToDb(authUser?.id, { share_wardrobe: next });
+            }}
           />
           <button
             type="button"
