@@ -11,7 +11,6 @@ import Avatar from "@/components/Avatar";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import PremiumModal from "@/components/PremiumModal";
 import AccountSwitcherModal from "@/components/AccountSwitcherModal";
-import DeleteAccountModal from "@/components/DeleteAccountModal";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/lib/auth-context";
 import { TrashIcon, UploadIcon } from "@/components/Icons";
@@ -41,7 +40,6 @@ export default function ProfilePage() {
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
-  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { user: authUser, savedAccounts, signOut } = useAuth();
   const router = useRouter();
@@ -180,20 +178,6 @@ export default function ProfilePage() {
             device — pick it again from <strong>Switch account</strong> to
             sign back in without re-entering your password.
           </p>
-
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={() => setDeleteAccountOpen(true)}
-              className="w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
-            >
-              Delete my account…
-            </button>
-            <p className="mt-1 text-[10px] text-[var(--muted)]">
-              Permanently removes your account, designs, and order
-              history. You&apos;ll need to type your password.
-            </p>
-          </div>
         </section>
       )}
 
@@ -362,11 +346,6 @@ export default function ProfilePage() {
       <AccountSwitcherModal
         open={switcherOpen}
         onClose={() => setSwitcherOpen(false)}
-      />
-
-      <DeleteAccountModal
-        open={deleteAccountOpen}
-        onClose={() => setDeleteAccountOpen(false)}
       />
 
       <ConfirmDialog

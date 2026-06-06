@@ -17,6 +17,7 @@ import {
   removeSavedAccount,
   type SavedAccount,
 } from "./saved-accounts";
+import { setActiveUser } from "./store";
 
 interface AuthState {
   /** The auth.users record (id, email, etc.). null when signed out. */
@@ -66,11 +67,6 @@ interface AuthContextValue extends AuthState {
   /** Remove an account from this device's switcher list. The account
    *  itself remains in Supabase — this just forgets the saved tokens. */
   forgetAccount: (accountId: string) => void;
-  /** Permanently delete the signed-in user. Re-prompts for the
-   *  password server-side via the delete_my_account RPC so a stolen
-   *  session can't nuke someone's account. On success the local
-   *  saved-account entry is wiped too. */
-  deleteAccount: (password: string) => Promise<{ error: string | null }>;
 }
 
 /** Allowed characters for the user-typed handle (called "Email" in
@@ -175,6 +171,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       const sessionUser = session?.user ?? null;
       setUser(sessionUser);
+      // Pin the local store to this user's bucket BEFORE we read any
+      // profile data, so designs/profile/deliveries are scoped to the
+      // right account from the very first render.
+      setActiveUser(sessionUser?.id ?? null);
       if (sessionUser && session) {
         const p = await fetchProfile(sessionUser.id);
         if (!cancelled) {
@@ -194,6 +194,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event: string, session: Session | null) => {
         const sessionUser = session?.user ?? null;
         setUser(sessionUser);
+        // Critical: this is what makes "switch account" / "sign out"
+        // visibly do something. Without it the entire app keeps reading
+        // the same localStorage bucket regardless of which Supabase
+        // user is signed in.
+        setActiveUser(sessionUser?.id ?? null);
         if (sessionUser && session) {
           const p = await fetchProfile(sessionUser.id);
           setProfile(p);
@@ -314,6 +319,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // switch back from the Profile page's account switcher without
     // re-typing credentials. The Supabase session itself is cleared.
     await supabase.auth.signOut();
+    // Belt and suspenders: clear local React state and the store's
+    // active-user pointer right away. Without this, the UI relies on
+    // the async SIGNED_OUT event from supabase reaching the listener,
+    // which sometimes lands a render-tick late and makes sign-out feel
+    // like it "didn't work".
+    setUser(null);
+    setProfile(null);
+    setActiveUser(null);
     refreshSaved();
   }, [refreshSaved]);
 
@@ -353,36 +366,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refreshSaved]
   );
 
-  const deleteAccount = useCallback(
-    async (password: string) => {
-      const currentId = user?.id;
-      if (!currentId) {
-        return { error: "You're not signed in." };
-      }
-      // RPC verifies the password server-side and cascades the delete.
-      // We pass the password as a positional arg; the function rejects
-      // with a "Password incorrect" exception on mismatch.
-      const { error } = await supabase.rpc("delete_my_account", {
-        p_password: password,
-      });
-      if (error) {
-        if (/password incorrect/i.test(error.message)) {
-          return { error: "Password is incorrect." };
-        }
-        return { error: error.message };
-      }
-      // The Supabase session is now pointing at a row that no longer
-      // exists in auth.users. Tear down the local state so the UI
-      // doesn't try to act on a dead session, and forget the saved
-      // entry on this device.
-      removeSavedAccount(currentId);
-      await supabase.auth.signOut();
-      refreshSaved();
-      return { error: null };
-    },
-    [user, refreshSaved]
-  );
-
   const refreshProfile = useCallback(async () => {
     if (!user) {
       setProfile(null);
@@ -403,7 +386,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     savedAccounts,
     switchAccount,
     forgetAccount,
-    deleteAccount,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

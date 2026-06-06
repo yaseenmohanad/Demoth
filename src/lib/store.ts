@@ -12,7 +12,29 @@ import type {
 import { ORDER_PRICE } from "./types";
 import { strokeBBox } from "./element-transform";
 
-const STORAGE_KEY = "demoth.state.v1";
+/** Pre-account-system localStorage key. We still read from here once
+ *  per user as a migration source — the first account that signs in on
+ *  a device inherits whatever data was previously here so existing
+ *  users don't lose their designs. After that we always use the
+ *  per-user key below. */
+const LEGACY_STORAGE_KEY = "demoth.state.v1";
+
+/** Which Supabase user the store is currently scoped to. Set via
+ *  {@link setActiveUser} whenever auth changes. `null` = signed-out /
+ *  guest, which reads/writes the legacy key (so a brand-new visitor
+ *  sees the marketing/seed data and can poke around before signing in).
+ *  This is intentionally a module-level mutable — `useSyncExternalStore`
+ *  treats it as part of the store's external state. */
+let activeUserId: string | null = null;
+
+/** Compute the localStorage key for the current active user. Each
+ *  signed-in user gets their own bucket of designs / profile /
+ *  deliveries, so switching accounts shows different data. */
+function currentStorageKey(): string {
+  return activeUserId
+    ? `demoth.state.v1.user.${activeUserId}`
+    : LEGACY_STORAGE_KEY;
+}
 
 // ---- mock seed (other users for admin demo) ----------------------------
 const SANS = "var(--font-geist-sans), system-ui, sans-serif";
@@ -216,7 +238,16 @@ function normalizeDesigns(
 function loadFromStorage(): AppState {
   if (typeof window === "undefined") return defaultState;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const key = currentStorageKey();
+    let raw = window.localStorage.getItem(key);
+    // First sign-in on a device migrates the legacy per-device store
+    // into this user's bucket — so existing users don't lose their
+    // designs when accounts ship. Once seeded, the user has their own
+    // bucket from then on; subsequent users start with empty state.
+    if (!raw && activeUserId) {
+      const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacy) raw = legacy;
+    }
     if (!raw) return defaultState;
     const parsed = JSON.parse(raw) as Partial<AppState>;
     return {
@@ -241,7 +272,7 @@ function loadFromStorage(): AppState {
 function saveToStorage(state: AppState) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    window.localStorage.setItem(currentStorageKey(), JSON.stringify(state));
   } catch {
     // ignore quota errors
   }
@@ -277,6 +308,24 @@ function getServerSnapshot(): AppState {
 /** Subscribe to the entire app state. SSR-safe. */
 export function useAppState(): AppState {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
+
+/**
+ * Tell the store which Supabase user is now active. Pass null when the
+ * user signs out. Designs / profile / deliveries are stored under a
+ * per-user localStorage key, so this swap is what makes "switch account"
+ * actually show different data — the AuthProvider calls it whenever the
+ * Supabase session changes (sign-in, sign-out, switch, refresh).
+ *
+ * No-ops if the id hasn't changed. Otherwise re-hydrates memory state
+ * from the new key and notifies all subscribers so the UI re-renders.
+ */
+export function setActiveUser(userId: string | null) {
+  if (activeUserId === userId) return;
+  activeUserId = userId;
+  memoryState = loadFromStorage();
+  hydrated = true;
+  emit();
 }
 
 /** Returns true once the client has mounted and read localStorage. */
