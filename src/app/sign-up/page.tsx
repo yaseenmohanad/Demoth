@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import Logo from "@/components/Logo";
+import {
+  validatePassword,
+  PASSWORD_RULES_HINT,
+} from "@/lib/password-policy";
 
 export default function SignUpPage() {
   return (
@@ -32,13 +36,27 @@ function SignUpForm() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** When the email the user typed was already taken, signUp auto-
+   *  appends a suffix and gives us back the final handle. We pause the
+   *  redirect on a "your unique handle is…" screen so the user can copy
+   *  it down before continuing. */
+  const [collisionHandle, setCollisionHandle] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    // Client-side password policy check — happens before we even hit
+    // the network so feedback is instant.
+    const pwErr = validatePassword(password);
+    if (pwErr) {
+      setError(pwErr);
+      return;
+    }
+
     setSubmitting(true);
     const cleanUsername = username.trim().toLowerCase();
-    const { error: signUpErr } = await signUp(
+    const { error: signUpErr, finalUsername } = await signUp(
       cleanUsername,
       password,
       name.trim()
@@ -49,10 +67,62 @@ function SignUpForm() {
       return;
     }
     // With email confirmation off, signUp returns a session directly —
-    // no follow-up signIn call needed. The redirect happens immediately
-    // and the onAuthStateChange listener in auth-context picks up the
-    // new session in the background.
+    // no follow-up signIn call needed. The onAuthStateChange listener in
+    // auth-context picks up the new session in the background.
+    if (finalUsername && finalUsername !== cleanUsername) {
+      // Collision — show the user their unique handle before redirecting.
+      setCollisionHandle(finalUsername);
+      return;
+    }
     router.push(next);
+  }
+
+  // Collision view: the email they typed was taken, so we generated a
+  // suffix for them. Show the final handle prominently and let them
+  // continue when ready.
+  if (collisionHandle) {
+    return (
+      <div className="mx-auto max-w-sm space-y-4">
+        <header className="text-center">
+          <div className="mx-auto mb-3 inline-flex items-center gap-2">
+            <Logo size={32} />
+            <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
+              Demoth
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold">You&apos;re in!</h1>
+        </header>
+
+        <div className="space-y-3 rounded-3xl bg-amber-50 p-5 ring-1 ring-amber-200">
+          <p className="text-sm font-semibold text-amber-900">
+            Heads up — that email was already used by someone else, so we
+            added a short suffix to keep your account separate.
+          </p>
+          <div>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-900">
+              Your sign-in email
+            </p>
+            <p className="break-all rounded-xl bg-white px-3 py-2 font-mono text-sm ring-1 ring-amber-200">
+              {collisionHandle}
+            </p>
+          </div>
+          <p className="text-xs text-amber-900">
+            Use this exact handle (with the suffix) when signing in from
+            another device. On <strong>this</strong> device you can pick
+            your account from the switcher on the Profile page — no need
+            to retype it.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => router.push(next)}
+          className="w-full rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--primary-strong)]"
+        >
+          Got it — continue
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -117,13 +187,14 @@ function SignUpForm() {
             type="password"
             autoComplete="new-password"
             required
-            minLength={6}
+            minLength={8}
+            maxLength={64}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-soft)]"
           />
           <span className="mt-1 block text-[10px] text-[var(--muted)]">
-            At least 6 characters.
+            {PASSWORD_RULES_HINT}
           </span>
         </label>
 

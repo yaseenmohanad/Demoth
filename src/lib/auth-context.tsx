@@ -31,12 +31,18 @@ interface AuthState {
 interface AuthContextValue extends AuthState {
   /** Username/password sign-up. Creates a new auth.users + profile.
    *  Internally derives a fake unique email so Supabase Auth (which
-   *  insists on unique emails) can keep working — users never see it. */
+   *  insists on unique emails) can keep working — users never see it.
+   *
+   *  If the email they typed is already taken, we auto-append a short
+   *  random suffix (e.g. `-x7k2`) and try again. `finalUsername` in the
+   *  return value is the actual handle they got — usually the same as
+   *  what they typed, but with a suffix on collision. The UI should
+   *  surface that to the user so they know how to sign in elsewhere. */
   signUp: (
     username: string,
     password: string,
     name?: string
-  ) => Promise<{ error: string | null }>;
+  ) => Promise<{ error: string | null; finalUsername?: string }>;
   /** Username/password sign-in. */
   signIn: (
     username: string,
@@ -62,21 +68,37 @@ interface AuthContextValue extends AuthState {
   forgetAccount: (accountId: string) => void;
 }
 
-/**
- * Convert the user-typed "email" (which is really a username — accepts
- * any letters/digits/dots/underscores/hyphens/@/+ between 3 and 50
- * chars) into the artificial Supabase email used for auth. We replace
- * `@` with `.at.` because email local parts can't contain `@`, but the
- * result is still a deterministic 1:1 mapping so sign-in finds the
- * same account every time.
- *
- * Returns null when the input doesn't pass the format check.
- */
-function usernameToEmail(username: string): string | null {
+/** Allowed characters for the user-typed handle (called "Email" in
+ *  the UI but really a unique username under the hood). 3-50 chars. */
+const HANDLE_RE = /^[a-z0-9._+@-]{3,50}$/;
+
+/** Normalize + validate the raw user input. Returns null if the format
+ *  is wrong. Doesn't touch the suffix logic — callers build the final
+ *  Supabase email via {@link handleToEmail}. */
+function normalizeHandle(username: string): string | null {
   const u = username.trim().toLowerCase();
-  if (!/^[a-z0-9._+@-]{3,50}$/.test(u)) return null;
-  const local = u.replace(/@/g, ".at.");
-  return `${local}@demoth.local`;
+  return HANDLE_RE.test(u) ? u : null;
+}
+
+/** Convert a normalized handle (possibly with a `-xxxx` suffix appended
+ *  after collision) into the artificial Supabase email. We replace `@`
+ *  with `.at.` because email local parts can't contain `@`. Result is
+ *  deterministic so sign-in finds the same account every time. */
+function handleToEmail(handle: string): string {
+  return `${handle.replace(/@/g, ".at.")}@demoth.local`;
+}
+
+/** Generate a short random suffix used to disambiguate handles when
+ *  two users sign up with the same email. Lowercase base32-ish alphabet
+ *  with confusable characters (0, 1, l, i, o) removed so users can read
+ *  the suffix back if shown to them. */
+const SUFFIX_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+function randomSuffix(len = 4): string {
+  let out = "";
+  for (let i = 0; i < len; i++) {
+    out += SUFFIX_ALPHABET[Math.floor(Math.random() * SUFFIX_ALPHABET.length)];
+  }
+  return out;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -187,41 +209,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = useCallback(
     async (username: string, password: string, name?: string) => {
-      const email = usernameToEmail(username);
-      if (!email) {
+      const base = normalizeHandle(username);
+      if (!base) {
         return {
           error:
             "Email must be 3-50 characters and only contain letters, digits, dot, underscore, @, +, or hyphen.",
         };
       }
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          // Carried through to the auto-create-profile trigger so the
-          // user's chosen identifier and display name land in the
-          // profiles row.
-          data: { username: username.trim().toLowerCase(), name: name?.trim() },
-        },
-      });
-      if (error) {
-        if (/already registered/i.test(error.message)) {
-          return { error: "That email is already taken. Try another." };
+      // Trim the base so a suffix can always fit inside the 50-char
+      // handle budget (5 chars: "-xxxx").
+      const safeBase = base.length > 45 ? base.slice(0, 45) : base;
+
+      // First attempt uses what the user typed. On collision, retry with
+      // a random suffix appended. Five suffix attempts is more than
+      // enough — alphabet is ~900k combos, so a real collision needs
+      // ~hundreds of thousands of existing accounts with the same base.
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const finalUsername =
+          attempt === 0 ? base : `${safeBase}-${randomSuffix()}`;
+        const { error } = await supabase.auth.signUp({
+          email: handleToEmail(finalUsername),
+          password,
+          options: {
+            // Trigger reads these out of raw_user_meta_data to populate
+            // the profiles row.
+            data: { username: finalUsername, name: name?.trim() },
+          },
+        });
+        if (!error) {
+          return { error: null, finalUsername };
         }
-        return { error: error.message };
+        // Only the "already taken" branch should retry — pass everything
+        // else (weak password, network, etc.) straight to the caller.
+        if (!/already registered/i.test(error.message)) {
+          return { error: error.message };
+        }
       }
-      return { error: null };
+      return {
+        error:
+          "Couldn't reserve a unique handle for that email. Try a slightly different one.",
+      };
     },
     []
   );
 
   const signIn = useCallback(async (username: string, password: string) => {
-    const email = usernameToEmail(username);
-    if (!email) {
+    const base = normalizeHandle(username);
+    if (!base) {
       return {
         error: "Enter a valid email.",
       };
     }
+    const email = handleToEmail(base);
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
