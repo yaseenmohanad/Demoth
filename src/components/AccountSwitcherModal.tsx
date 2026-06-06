@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import Avatar from "./Avatar";
+import ConfirmDialog from "./ConfirmDialog";
 import { XIcon, PlusIcon, TrashIcon, CheckIcon, SpinnerIcon } from "./Icons";
 
 /**
@@ -25,6 +26,13 @@ export default function AccountSwitcherModal({
   const { user, savedAccounts, switchAccount, forgetAccount } = useAuth();
   const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** When set, we're asking the user to confirm forgetting an account.
+   *  Pulled out into its own confirm dialog so we don't depend on the
+   *  browser's native confirm() — keeps the UX in-app. */
+  const [forgetTarget, setForgetTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -125,11 +133,9 @@ export default function AccountSwitcherModal({
                   ) : (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (confirm(`Forget "${acc.name}" on this device?`)) {
-                          forgetAccount(acc.id);
-                        }
-                      }}
+                      onClick={() =>
+                        setForgetTarget({ id: acc.id, name: acc.name })
+                      }
                       aria-label={`Forget ${acc.name}`}
                       title="Forget on this device"
                       className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-red-50 hover:text-red-600"
@@ -164,6 +170,22 @@ export default function AccountSwitcherModal({
           device — the account itself stays in Supabase.
         </p>
       </div>
+
+      <ConfirmDialog
+        open={forgetTarget !== null}
+        title="Forget this account?"
+        message={
+          forgetTarget
+            ? `"${forgetTarget.name}" will be removed from this device. The account itself stays — sign in again to bring it back to the switcher.`
+            : ""
+        }
+        confirmLabel="Forget"
+        onConfirm={() => {
+          if (forgetTarget) forgetAccount(forgetTarget.id);
+          setForgetTarget(null);
+        }}
+        onCancel={() => setForgetTarget(null)}
+      />
     </div>
   );
 }

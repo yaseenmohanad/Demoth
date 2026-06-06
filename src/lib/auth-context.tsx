@@ -66,6 +66,11 @@ interface AuthContextValue extends AuthState {
   /** Remove an account from this device's switcher list. The account
    *  itself remains in Supabase — this just forgets the saved tokens. */
   forgetAccount: (accountId: string) => void;
+  /** Permanently delete the signed-in user. Re-prompts for the
+   *  password server-side via the delete_my_account RPC so a stolen
+   *  session can't nuke someone's account. On success the local
+   *  saved-account entry is wiped too. */
+  deleteAccount: (password: string) => Promise<{ error: string | null }>;
 }
 
 /** Allowed characters for the user-typed handle (called "Email" in
@@ -224,10 +229,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // a random suffix appended. Five suffix attempts is more than
       // enough — alphabet is ~900k combos, so a real collision needs
       // ~hundreds of thousands of existing accounts with the same base.
+      //
+      // Collision detection is subtle: with email confirmations OFF,
+      // Supabase's anti-enumeration behavior means signUp can succeed
+      // *without* an error in two duplicate-email cases:
+      //   (a) password also matches an existing user  → returns that
+      //       existing user + a real session (silently signs us in)
+      //   (b) password differs                         → returns a fake
+      //       user object with an empty identities[] and no session
+      // We treat both as collisions and retry with a fresh suffix.
       for (let attempt = 0; attempt < 6; attempt++) {
         const finalUsername =
           attempt === 0 ? base : `${safeBase}-${randomSuffix()}`;
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email: handleToEmail(finalUsername),
           password,
           options: {
@@ -236,14 +250,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             data: { username: finalUsername, name: name?.trim() },
           },
         });
-        if (!error) {
-          return { error: null, finalUsername };
+
+        if (error) {
+          // Only the "already taken" branch should retry — pass everything
+          // else (weak password, network, etc.) straight to the caller.
+          if (!/already registered/i.test(error.message)) {
+            return { error: error.message };
+          }
+          continue;
         }
-        // Only the "already taken" branch should retry — pass everything
-        // else (weak password, network, etc.) straight to the caller.
-        if (!/already registered/i.test(error.message)) {
-          return { error: error.message };
+
+        // Empty identities = silent collision. (data.user is still a
+        // truthy object with an obfuscated id.)
+        const identities = data.user?.identities ?? [];
+        if (identities.length === 0) {
+          // If Supabase accidentally signed us into the existing account
+          // (case (a) above), sign out so the next iteration starts
+          // clean and doesn't leave the user logged into someone else's
+          // account.
+          const { data: sessData } = await supabase.auth.getSession();
+          if (sessData.session) {
+            await supabase.auth.signOut();
+          }
+          continue;
         }
+
+        return { error: null, finalUsername };
       }
       return {
         error:
@@ -321,6 +353,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refreshSaved]
   );
 
+  const deleteAccount = useCallback(
+    async (password: string) => {
+      const currentId = user?.id;
+      if (!currentId) {
+        return { error: "You're not signed in." };
+      }
+      // RPC verifies the password server-side and cascades the delete.
+      // We pass the password as a positional arg; the function rejects
+      // with a "Password incorrect" exception on mismatch.
+      const { error } = await supabase.rpc("delete_my_account", {
+        p_password: password,
+      });
+      if (error) {
+        if (/password incorrect/i.test(error.message)) {
+          return { error: "Password is incorrect." };
+        }
+        return { error: error.message };
+      }
+      // The Supabase session is now pointing at a row that no longer
+      // exists in auth.users. Tear down the local state so the UI
+      // doesn't try to act on a dead session, and forget the saved
+      // entry on this device.
+      removeSavedAccount(currentId);
+      await supabase.auth.signOut();
+      refreshSaved();
+      return { error: null };
+    },
+    [user, refreshSaved]
+  );
+
   const refreshProfile = useCallback(async () => {
     if (!user) {
       setProfile(null);
@@ -341,6 +403,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     savedAccounts,
     switchAccount,
     forgetAccount,
+    deleteAccount,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
