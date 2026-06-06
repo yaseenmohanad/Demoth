@@ -20,10 +20,19 @@ const items = [
   { href: "/profile", label: "Profile", Icon: UserIcon, match: (p: string) => p.startsWith("/profile") },
 ];
 
+/** Routes that should render full-bleed with no bottom nav — the auth
+ *  flow is the obvious one (signing in/up is a focused task and the nav
+ *  links would only distract). Add more paths here if needed later. */
+const HIDE_ON: ReadonlyArray<string> = ["/sign-in", "/sign-up"];
+
 export default function BottomNav() {
   const pathname = usePathname();
   const { profile } = useAppState();
   const hydrated = useHydrated();
+
+  if (HIDE_ON.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return null;
+  }
 
   return (
     <nav className="sticky bottom-0 z-30 border-t border-[var(--border)] bg-white/90 backdrop-blur">
