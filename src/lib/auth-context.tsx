@@ -346,14 +346,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         access_token: target.accessToken,
         refresh_token: target.refreshToken,
       });
+
+      // Auth-style failures (token expired, refresh rotated by a sign-in
+      // elsewhere, account deleted, "Auth session missing!" after a stale
+      // setSession) all mean the saved tokens for this account are dead.
+      // Drop the entry so the user isn't stuck staring at an account
+      // they can't get into, and surface a friendly message instead of
+      // the raw Supabase string.
+      //
+      // We DON'T treat plain network errors the same way — those are
+      // transient and the saved entry might still be usable on retry.
+      const looksLikeDeadSession = (msg: string) =>
+        /session missing|refresh.*invalid|invalid.*refresh|refresh.*not found|refresh_token_not_found|jwt|expired|unauthor|user not found/i.test(
+          msg
+        );
+
       if (error) {
-        // Token expired or the account was deleted server-side. Drop
-        // the dead entry so the switcher doesn't keep offering it.
-        if (
-          /refresh.*invalid|jwt expired|not found/i.test(error.message)
-        ) {
+        if (looksLikeDeadSession(error.message)) {
           removeSavedAccount(accountId);
           refreshSaved();
+          return {
+            error:
+              "That account's session expired. Sign in again to add it back.",
+          };
         }
         return { error: error.message };
       }
@@ -366,14 +381,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // switcher modal can close instantly.
       const { data: sessData } = await supabase.auth.getSession();
       const newSession = sessData.session;
-      if (newSession?.user) {
-        setUser(newSession.user);
-        setActiveUser(newSession.user.id);
-        void fetchProfile(newSession.user.id).then((p) => {
-          setProfile(p);
-          void persistSession(newSession, p);
-        });
+      if (!newSession?.user) {
+        // setSession succeeded per the call but the session vanished
+        // immediately after — treat the same as a dead-session error
+        // above so the switcher doesn't claim "switched!" while
+        // leaving the user signed out.
+        removeSavedAccount(accountId);
+        refreshSaved();
+        return {
+          error:
+            "Couldn't restore that account's session. Sign in again to add it back.",
+        };
       }
+      setUser(newSession.user);
+      setActiveUser(newSession.user.id);
+      void fetchProfile(newSession.user.id).then((p) => {
+        setProfile(p);
+        void persistSession(newSession, p);
+      });
       return { error: null };
     },
     [refreshSaved, persistSession]
