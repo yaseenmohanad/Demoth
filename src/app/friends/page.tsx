@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
   listDirectory,
@@ -14,6 +15,12 @@ import {
   type FriendUser,
   type FriendRequestRow,
 } from "@/lib/friends";
+import {
+  listIncomingInvites,
+  acceptEditInvite,
+  denyEditInvite,
+  type EditInviteRow,
+} from "@/lib/collab";
 import Avatar from "@/components/Avatar";
 import {
   UsersIcon,
@@ -23,6 +30,7 @@ import {
   CheckIcon,
   XIcon,
   SpinnerIcon,
+  BrushIcon,
 } from "@/components/Icons";
 
 /**
@@ -280,22 +288,29 @@ function DiscoverTab() {
  * items first, then by newest activity.
  */
 function InboxTab() {
+  const router = useRouter();
   const [incoming, setIncoming] = useState<FriendRequestRow[]>([]);
   const [outgoing, setOutgoing] = useState<FriendRequestRow[]>([]);
+  const [editInvites, setEditInvites] = useState<EditInviteRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [a, b] = await Promise.all([listInbox(), listSent()]);
-    if (a.error || b.error) {
-      setError(a.error ?? b.error);
+    const [a, b, c] = await Promise.all([
+      listInbox(),
+      listSent(),
+      listIncomingInvites(),
+    ]);
+    if (a.error || b.error || c.error) {
+      setError(a.error ?? b.error ?? c.error);
     } else {
       setError(null);
     }
     setIncoming(a.rows);
     setOutgoing(b.rows);
+    setEditInvites(c.rows);
     setLoading(false);
   }, []);
 
@@ -326,27 +341,98 @@ function InboxTab() {
     void refresh();
   }
 
+  // Edit-invite handlers. Accepting also routes the user straight
+  // into the design editor for that design — that's the "you will
+  // be transferred to the design" part of the original spec.
+  async function handleEditAccept(invite: EditInviteRow) {
+    if (busyId) return;
+    setBusyId(invite.id);
+    const { error: e } = await acceptEditInvite(invite.id);
+    setBusyId(null);
+    if (e) {
+      setError(e);
+      return;
+    }
+    router.push(`/design?id=${invite.designId}`);
+  }
+  async function handleEditDeny(invite: EditInviteRow) {
+    if (busyId) return;
+    setBusyId(invite.id);
+    const { error: e } = await denyEditInvite(invite.id);
+    setBusyId(null);
+    if (e) {
+      setError(e);
+      return;
+    }
+    void refresh();
+  }
+
   if (loading) return <Loading />;
   if (error) return <ErrorBanner message={error} />;
 
   const pendingIncoming = incoming.filter((r) => r.status === "pending");
   const handledIncoming = incoming.filter((r) => r.status !== "pending");
+  const pendingEdits = editInvites.filter((r) => r.status === "pending");
+  const handledEdits = editInvites.filter((r) => r.status !== "pending");
 
   if (
     pendingIncoming.length === 0 &&
     handledIncoming.length === 0 &&
-    outgoing.length === 0
+    outgoing.length === 0 &&
+    editInvites.length === 0
   ) {
     return (
       <Empty
         title="Inbox is empty"
-        body="Friend requests you send and receive show up here, along with notifications when they're accepted or denied."
+        body="Friend requests, edit invites, and verdict notifications all show up here."
       />
     );
   }
 
   return (
     <div className="space-y-5">
+      {pendingEdits.length > 0 && (
+        <Group title="Edit invites">
+          {pendingEdits.map((inv) => (
+            <li
+              key={inv.id}
+              className="flex items-center gap-3 rounded-2xl bg-violet-50 p-3 ring-1 ring-violet-200"
+            >
+              <Avatar name={inv.other.name} src={inv.other.avatar} size={40} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-bold">{inv.other.name}</p>
+                <p className="truncate text-xs text-[var(--muted)]">
+                  wants to co-edit&nbsp;
+                  <strong className="text-[var(--foreground)]">
+                    {inv.designName}
+                  </strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleEditAccept(inv)}
+                disabled={busyId === inv.id}
+                aria-label="Open design together"
+                title="Open design together"
+                className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--primary)] text-white hover:bg-[var(--primary-strong)] disabled:opacity-50"
+              >
+                <BrushIcon size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleEditDeny(inv)}
+                disabled={busyId === inv.id}
+                aria-label="Deny"
+                title="Deny"
+                className="grid h-9 w-9 place-items-center rounded-lg bg-white text-red-600 ring-1 ring-[var(--border)] hover:bg-red-50 disabled:opacity-50"
+              >
+                <XIcon size={16} />
+              </button>
+            </li>
+          ))}
+        </Group>
+      )}
+
       {pendingIncoming.length > 0 && (
         <Group title="Incoming requests">
           {pendingIncoming.map((r) => (

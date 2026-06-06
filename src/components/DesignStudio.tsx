@@ -57,7 +57,22 @@ import { displayName } from "@/lib/format";
 import { elementTransform } from "@/lib/element-transform";
 import { publishDesign, unpublishDesign } from "@/lib/marketplace";
 import { useAuth } from "@/lib/auth-context";
-import { StorefrontIcon } from "@/components/Icons";
+import { StorefrontIcon, UsersIcon } from "@/components/Icons";
+import { supabase } from "@/lib/supabase";
+import {
+  ensureDesignInDb,
+  sendEditInvite,
+  randomCollabColor,
+  type CursorPayload,
+  type DesignBroadcastPayload,
+} from "@/lib/collab";
+import { listFriends, type FriendUser } from "@/lib/friends";
+import Avatar from "@/components/Avatar";
+
+/** UUID v4-ish pattern. Used to tell apart local `makeId()` design
+ *  ids (8 base36 chars) from Supabase UUIDs in the `?id=` query. */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const VB_W = 400;
 const VB_H = 500;
@@ -527,16 +542,48 @@ export default function DesignStudio() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [design, history, future]);
 
-  // Load existing design if ?id= is present
+  // Load existing design if ?id= is present. Two paths depending on
+  // shape of the id:
+  //   - local 8-char base36 -> from localStorage (the normal case)
+  //   - UUID -> from Supabase (e.g. collaborator just accepted an
+  //     edit invite and got routed here with the published id)
   useEffect(() => {
-    if (!hydrated) return;
-    if (idParam) {
-      const existing = getDesign(idParam);
-      if (existing) {
-        setDesign(existing);
-        setGarmentChosen(true);
-        setSavedSnapshot(JSON.stringify(existing));
-      }
+    if (!hydrated || !idParam) return;
+    let cancelled = false;
+    if (UUID_RE.test(idParam)) {
+      supabase
+        .from("designs")
+        .select(
+          "id, name, garment, garment_color, elements, created_at, updated_at, published"
+        )
+        .eq("id", idParam)
+        .single()
+        .then(({ data, error }) => {
+          if (cancelled || error || !data) return;
+          const remote: Design = {
+            id: data.id as string,
+            name: (data.name as string) ?? "Untitled design",
+            garment: data.garment as GarmentType,
+            garmentColor: (data.garment_color as string) ?? "#ffffff",
+            elements: (data.elements as DesignElement[]) ?? [],
+            createdAt: new Date(data.created_at as string).getTime(),
+            updatedAt: new Date(data.updated_at as string).getTime(),
+            publishedId: data.id as string,
+            isPublished: (data.published as boolean) ?? false,
+          };
+          setDesign(remote);
+          setGarmentChosen(true);
+          setSavedSnapshot(JSON.stringify(remote));
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    const existing = getDesign(idParam);
+    if (existing) {
+      setDesign(existing);
+      setGarmentChosen(true);
+      setSavedSnapshot(JSON.stringify(existing));
     }
   }, [hydrated, idParam]);
 
@@ -793,6 +840,10 @@ export default function DesignStudio() {
 
   // ---- canvas pointer logic ----
   function onCanvasPointerDown(e: ReactPointerEvent<SVGSVGElement>) {
+    // Mark a local drag so any design-state broadcast that arrives
+    // mid-gesture is ignored until pointerup (otherwise a peer's
+    // late-arriving update would yank the element out of our hand).
+    draggingLocallyRef.current = true;
     if (tool === "draw") {
       const { x, y } = clientToSvg(e.clientX, e.clientY);
       const id = makeId();
@@ -838,6 +889,12 @@ export default function DesignStudio() {
   }
 
   function onCanvasPointerMove(e: ReactPointerEvent<SVGSVGElement>) {
+    // Broadcast our cursor position to collaborators (no-op if no
+    // channel is connected). Throttled inside broadcastCursor.
+    if (channelRef.current) {
+      const p = clientToSvg(e.clientX, e.clientY);
+      broadcastCursor(p.x, p.y);
+    }
     // If we're tracking a long-press and the finger has moved enough, the
     // user is dragging instead — cancel the timer so it doesn't fire.
     if (
@@ -984,6 +1041,9 @@ export default function DesignStudio() {
   }
 
   function onCanvasPointerUp(e: ReactPointerEvent<SVGSVGElement>) {
+    // Local drag (if any) has finished — allow remote design broadcasts
+    // through again.
+    draggingLocallyRef.current = false;
     // If the finger lifts before the long-press timer fires, cancel it —
     // the user tapped or short-dragged.
     if (
@@ -1286,6 +1346,225 @@ export default function DesignStudio() {
     setSavedSnapshot(JSON.stringify(next));
   }
 
+  // ---- collab editing (Phase 4) -------------------------------------------
+  //
+  // Each editor instance grabs a stable identity at mount time (real user
+  // id when signed in, else a guest-* fallback so cursors still work)
+  // plus a random cursor color. Both flow over Supabase Realtime to any
+  // other editor open on the same designId.
+  const collabMeRef = useRef<{ id: string; name: string; color: string } | null>(null);
+  if (!collabMeRef.current) {
+    collabMeRef.current = {
+      id: authUser?.id ?? `guest-${Math.random().toString(36).slice(2, 8)}`,
+      name: profile.name || authUser?.email || "Guest",
+      color: randomCollabColor(),
+    };
+  }
+  const [remoteCursors, setRemoteCursors] = useState<Map<string, CursorPayload>>(
+    () => new Map()
+  );
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  /** Timestamp of the most recent design-state broadcast we *received*,
+   *  used to break the broadcast→setDesign→broadcast feedback loop. */
+  const lastIncomingDesignAtRef = useRef(0);
+  /** True while a pointer drag/resize/draw is in progress. Remote
+   *  state arriving while this is on gets ignored so we don't clobber
+   *  the local user's in-flight edit. */
+  const draggingLocallyRef = useRef(false);
+  const lastCursorBroadcastRef = useRef(0);
+  const lastStateBroadcastRef = useRef(0);
+  const stateBroadcastTimerRef = useRef<number | null>(null);
+
+  // Connect to the per-design channel as soon as we know the design's
+  // Supabase id (publishedId). Tear down on unmount or if the
+  // publishedId changes (e.g. user toggled publish off and we lost
+  // the row).
+  useEffect(() => {
+    const designUuid = design.publishedId;
+    if (!designUuid) return;
+    const me = collabMeRef.current!;
+
+    const channel = supabase.channel(`design:${designUuid}`, {
+      config: { presence: { key: me.id } },
+    });
+
+    // Live cursor positions — high-frequency, small payload.
+    channel.on(
+      "broadcast",
+      { event: "cursor" },
+      ({ payload }: { payload: CursorPayload }) => {
+        if (payload.userId === me.id) return;
+        setRemoteCursors((prev) => {
+          const next = new Map(prev);
+          next.set(payload.userId, payload);
+          return next;
+        });
+      }
+    );
+
+    // Full design-state broadcasts. We don't try to merge; the latest
+    // payload replaces the local state unless we're currently dragging.
+    channel.on(
+      "broadcast",
+      { event: "design" },
+      ({ payload }: { payload: DesignBroadcastPayload }) => {
+        if (payload.userId === me.id) return;
+        if (draggingLocallyRef.current) return;
+        lastIncomingDesignAtRef.current = payload.sentAt;
+        setDesign((prev) => ({
+          ...prev,
+          garment: payload.garment,
+          garmentColor: payload.garmentColor,
+          elements: payload.elements,
+          updatedAt: payload.sentAt,
+        }));
+      }
+    );
+
+    // Remove a cursor when its owner leaves. The presence rows we
+    // tracked include {userId, name, color}; we use userId to match
+    // since that's the key in remoteCursors too.
+    channel.on("presence", { event: "leave" }, ({ leftPresences }) => {
+      setRemoteCursors((prev) => {
+        const next = new Map(prev);
+        for (const p of leftPresences as unknown as { userId?: string }[]) {
+          if (p.userId) next.delete(p.userId);
+        }
+        return next;
+      });
+    });
+
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        void channel.track({
+          userId: me.id,
+          name: me.name,
+          color: me.color,
+        });
+      }
+    });
+
+    channelRef.current = channel;
+
+    return () => {
+      void channel.unsubscribe();
+      channelRef.current = null;
+      setRemoteCursors(new Map());
+    };
+    // collabMeRef is stable for the editor's lifetime — no need in deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [design.publishedId]);
+
+  // Throttled design-state broadcaster. Fires immediately if we
+  // haven't sent in 400ms, otherwise debounces so a fast drag doesn't
+  // flood the channel. Skips broadcasts that match the last received
+  // state so we don't echo someone else's edit back at them.
+  useEffect(() => {
+    const ch = channelRef.current;
+    const me = collabMeRef.current;
+    if (!ch || !me) return;
+    if (design.updatedAt === lastIncomingDesignAtRef.current) return;
+    const fire = () => {
+      ch.send({
+        type: "broadcast",
+        event: "design",
+        payload: {
+          userId: me.id,
+          name: me.name,
+          garment: design.garment,
+          garmentColor: design.garmentColor,
+          elements: design.elements,
+          sentAt: Date.now(),
+        } satisfies DesignBroadcastPayload,
+      });
+      lastStateBroadcastRef.current = Date.now();
+    };
+    const since = Date.now() - lastStateBroadcastRef.current;
+    if (since > 400) {
+      fire();
+    } else {
+      if (stateBroadcastTimerRef.current) {
+        clearTimeout(stateBroadcastTimerRef.current);
+      }
+      stateBroadcastTimerRef.current = window.setTimeout(fire, 400 - since);
+    }
+    return () => {
+      if (stateBroadcastTimerRef.current) {
+        clearTimeout(stateBroadcastTimerRef.current);
+        stateBroadcastTimerRef.current = null;
+      }
+    };
+  }, [design]);
+
+  /** Called from the canvas pointermove handler to share my cursor
+   *  with collaborators. Coordinates are in viewBox units so they
+   *  line up regardless of the receiver's screen size. */
+  function broadcastCursor(x: number, y: number) {
+    const ch = channelRef.current;
+    const me = collabMeRef.current;
+    if (!ch || !me) return;
+    const now = Date.now();
+    if (now - lastCursorBroadcastRef.current < 50) return;
+    lastCursorBroadcastRef.current = now;
+    ch.send({
+      type: "broadcast",
+      event: "cursor",
+      payload: { userId: me.id, name: me.name, color: me.color, x, y },
+    });
+  }
+
+  // ---- invite-a-friend modal ----------------------------------------------
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [friendsList, setFriendsList] = useState<FriendUser[]>([]);
+  const [friendsLoaded, setFriendsLoaded] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set());
+
+  async function openInvite() {
+    setInviteError(null);
+    setInviteOpen(true);
+    if (!friendsLoaded) {
+      const { friends: rows, error } = await listFriends();
+      if (error) setInviteError(error);
+      else setFriendsList(rows);
+      setFriendsLoaded(true);
+    }
+  }
+
+  async function handleInviteFriend(friendId: string) {
+    if (inviteBusy) return;
+    setInviteError(null);
+    setInviteBusy(friendId);
+
+    // First save locally, then make sure the design exists in
+    // Supabase (insert with published=false if necessary). The
+    // resulting UUID becomes the design's publishedId so the
+    // collab channel can wire up.
+    saveDesign(design);
+    let designUuid = design.publishedId;
+    if (!designUuid) {
+      const { designId, error } = await ensureDesignInDb(design);
+      if (error || !designId) {
+        setInviteError(error ?? "Couldn't prepare design for sharing.");
+        setInviteBusy(null);
+        return;
+      }
+      designUuid = designId;
+      const updated: Design = { ...design, publishedId: designUuid };
+      setDesign(updated);
+      saveDesign(updated);
+    }
+
+    const { error } = await sendEditInvite(friendId, designUuid);
+    setInviteBusy(null);
+    if (error) {
+      setInviteError(error);
+      return;
+    }
+    setInvitedIds((prev) => new Set(prev).add(friendId));
+  }
+
   // ---- garment picker (only for brand new designs) ----
   if (!garmentChosen && !idParam) {
     return (
@@ -1350,6 +1629,24 @@ export default function DesignStudio() {
             className="grid h-9 w-9 place-items-center rounded-lg text-[var(--muted)] ring-1 ring-[var(--border)] transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <TrashIcon size={18} />
+          </button>
+          {/* Invite-friend-to-co-edit. Premium-gated. Tooltips
+              explain why it's disabled in the other states. The
+              modal handles "no friends yet" itself. */}
+          <button
+            type="button"
+            onClick={openInvite}
+            disabled={!authUser || !profile.premium}
+            title={
+              !authUser
+                ? "Sign in to invite a friend"
+                : !profile.premium
+                ? "Premium only — invite a friend to co-edit"
+                : "Invite a friend to edit this design with you"
+            }
+            className="ml-1 flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-[var(--foreground)] ring-1 ring-[var(--border)] shadow-sm transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <UsersIcon size={16} /> Invite
           </button>
           {/* Publish toggle. Sits right next to Save so users can
               flip a finished design out to Browse without leaving the
@@ -1514,6 +1811,38 @@ export default function DesignStudio() {
               onRotateDown={onRotateHandlePointerDown}
             />
           )}
+
+          {/* Remote collaborators' cursors. Drawn at the very top of
+              the SVG so they always sit above design content. */}
+          {[...remoteCursors.values()].map((c) => (
+            <g key={c.userId} pointerEvents="none">
+              <circle
+                cx={c.x}
+                cy={c.y}
+                r={5}
+                fill={c.color}
+                stroke="#fff"
+                strokeWidth={1.5}
+              />
+              <rect
+                x={c.x + 8}
+                y={c.y - 14}
+                width={Math.max(c.name.length * 5.5 + 8, 30)}
+                height={16}
+                rx={4}
+                fill={c.color}
+              />
+              <text
+                x={c.x + 12}
+                y={c.y - 2}
+                fontSize="10"
+                fontWeight="700"
+                fill="#fff"
+              >
+                {c.name}
+              </text>
+            </g>
+          ))}
         </svg>
 
         {/* Zoom controls (overlay) */}
@@ -1862,6 +2191,87 @@ export default function DesignStudio() {
         }}
         onCancel={() => setShowClearAllConfirm(false)}
       />
+
+      {/* Invite-friend-to-co-edit modal. Opened from the toolbar
+          Invite button. Premium gating + "no friends yet" hint are
+          handled here so the toolbar stays compact. */}
+      {inviteOpen && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setInviteOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm space-y-3 rounded-3xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <UsersIcon size={20} />
+              <h3 className="text-lg font-bold">Invite a friend</h3>
+            </div>
+            <p className="text-xs text-[var(--muted)]">
+              Pick a friend to co-edit{" "}
+              <strong>{design.name || "this design"}</strong> with you.
+              They&apos;ll see an invite in their Friends inbox.
+            </p>
+
+            {!friendsLoaded ? (
+              <div className="grid place-items-center py-6">
+                <SpinnerIcon size={20} />
+              </div>
+            ) : friendsList.length === 0 ? (
+              <p className="rounded-2xl bg-[var(--background)] p-4 text-center text-xs text-[var(--muted)] ring-1 ring-[var(--border)]">
+                You don&apos;t have any friends yet. Open the{" "}
+                <strong>Friends</strong> tab → Discover to send a request.
+              </p>
+            ) : (
+              <ul className="max-h-72 space-y-2 overflow-y-auto">
+                {friendsList.map((f) => {
+                  const invited = invitedIds.has(f.id);
+                  const busy = inviteBusy === f.id;
+                  return (
+                    <li
+                      key={f.id}
+                      className="flex items-center gap-3 rounded-2xl bg-[var(--background)] p-2 ring-1 ring-[var(--border)]"
+                    >
+                      <Avatar name={f.name} src={f.avatar} size={36} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold">{f.name}</p>
+                        <p className="truncate text-[11px] text-[var(--muted)]">
+                          @{f.username}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleInviteFriend(f.id)}
+                        disabled={invited || busy}
+                        className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {busy ? "…" : invited ? "Sent" : "Invite"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {inviteError && (
+              <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
+                {inviteError}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setInviteOpen(false)}
+              className="w-full rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[var(--foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--background)]"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
