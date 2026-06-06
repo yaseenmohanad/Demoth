@@ -45,32 +45,31 @@ export default function SettingsPage() {
         <h1 className="text-xl font-bold">Settings</h1>
       </header>
 
-      {/* Account section — only meaningful when signed in to Supabase.
-          When logged out we leave it off entirely so the section
-          doesn't look broken. */}
-      {authUser && (
-        <Section title="Account">
-          <button
-            type="button"
-            onClick={() => setSwitcherOpen(true)}
-            className="flex w-full items-center justify-between rounded-2xl bg-[var(--primary-soft)] px-3 py-2.5 text-left text-sm font-semibold text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white"
-          >
-            <span>Switch account</span>
-            {savedAccounts.length > 1 && (
-              <span className="text-[10px] font-bold opacity-70">
-                {savedAccounts.length} on this device
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setSignOutOpen(true)}
-            className="w-full rounded-2xl bg-white px-3 py-2.5 text-left text-sm font-semibold text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--foreground)]"
-          >
-            Sign out
-          </button>
-        </Section>
-      )}
+      {/* Account section — always visible. When not currently signed
+          in, "Switch account" still works (the modal lists any saved
+          accounts on this device and offers an Add-another link), and
+          "Sign out" gracefully no-ops + routes to /sign-in. */}
+      <Section title="Account">
+        <button
+          type="button"
+          onClick={() => setSwitcherOpen(true)}
+          className="flex w-full items-center justify-between rounded-2xl bg-[var(--primary-soft)] px-3 py-2.5 text-left text-sm font-semibold text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white"
+        >
+          <span>Switch account</span>
+          {savedAccounts.length > 1 && (
+            <span className="text-[10px] font-bold opacity-70">
+              {savedAccounts.length} on this device
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSignOutOpen(true)}
+          className="w-full rounded-2xl bg-white px-3 py-2.5 text-left text-sm font-semibold text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--foreground)]"
+        >
+          {authUser ? "Sign out" : "Go to sign-in"}
+        </button>
+      </Section>
 
       <Section title="Privacy">
         <ToggleRow
