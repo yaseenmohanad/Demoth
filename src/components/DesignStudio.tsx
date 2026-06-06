@@ -1434,6 +1434,35 @@ export default function DesignStudio() {
       });
     });
 
+    // When someone *else* joins, re-broadcast our current state so
+    // they catch up. Fixes the late-joiner case where A makes an
+    // edit, then B subscribes after the broadcast has already fired —
+    // without this, B would never see A's pre-join changes.
+    channel.on("presence", { event: "join" }, ({ newPresences }) => {
+      const arrivals = newPresences as unknown as { userId?: string }[];
+      const hasOther = arrivals.some(
+        (p) => p.userId && p.userId !== me.id
+      );
+      if (!hasOther) return;
+      // Tiny defer so React has settled the latest design state.
+      setTimeout(() => {
+        const ch = channelRef.current;
+        if (!ch) return;
+        ch.send({
+          type: "broadcast",
+          event: "design",
+          payload: {
+            userId: me.id,
+            name: me.name,
+            garment: design.garment,
+            garmentColor: design.garmentColor,
+            elements: design.elements,
+            sentAt: Date.now(),
+          } satisfies DesignBroadcastPayload,
+        });
+      }, 100);
+    });
+
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
         void channel.track({
@@ -1441,6 +1470,27 @@ export default function DesignStudio() {
           name: me.name,
           color: me.color,
         });
+        // Best-effort resync: tell anyone who's already on the
+        // channel "hi, here's my current state" so they can re-
+        // broadcast if they have something newer. We also re-
+        // broadcast our own state shortly after, in case our late
+        // arrival meant nobody got the previous state from us.
+        setTimeout(() => {
+          const ch = channelRef.current;
+          if (!ch) return;
+          ch.send({
+            type: "broadcast",
+            event: "design",
+            payload: {
+              userId: me.id,
+              name: me.name,
+              garment: design.garment,
+              garmentColor: design.garmentColor,
+              elements: design.elements,
+              sentAt: Date.now(),
+            } satisfies DesignBroadcastPayload,
+          });
+        }, 250);
       }
     });
 

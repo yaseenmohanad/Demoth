@@ -1,93 +1,163 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/lib/auth-context";
 import {
-  useAppState,
-  useHydrated,
-  updateOrderStatus,
-  deleteOrder,
-  resetMockUsers,
-} from "@/lib/store";
-import { ORDER_PRICE, type DeliveryStatus, type Delivery, type Design } from "@/lib/types";
-import { displayName } from "@/lib/format";
+  listAllProfiles,
+  listAllDeliveries,
+  countAllDesigns,
+  setDeliveryStatus,
+  deleteDelivery,
+  type AdminProfile,
+  type AdminDelivery,
+} from "@/lib/admin";
+import type { DeliveryStatus } from "@/lib/types";
 import DesignPreview from "@/components/DesignPreview";
+import Avatar from "@/components/Avatar";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { TruckIcon, UserIcon, TrashIcon } from "@/components/Icons";
+import { TruckIcon, TrashIcon, SpinnerIcon } from "@/components/Icons";
 
-interface OrderRow {
-  ownerId: "self" | string;
-  ownerName: string;
-  order: Delivery;
-}
+/**
+ * /admin — real admin panel (Phase 5). Loads every profile + every
+ * delivery from Supabase and lets an admin change order statuses or
+ * delete orders. Guards on the caller's profiles.is_admin flag; non-
+ * admins get a "not allowed" message even though server-side RLS
+ * would also block them from reading deliveries that aren't theirs.
+ */
 
-const STATUS_ORDER: DeliveryStatus[] = ["pending", "shipped", "delivered", "cancelled"];
+const STATUS_ORDER: DeliveryStatus[] = [
+  "pending",
+  "shipped",
+  "delivered",
+  "cancelled",
+];
 
 export default function AdminPage() {
-  const state = useAppState();
-  const hydrated = useHydrated();
-  const [filter, setFilter] = useState<DeliveryStatus | "all">("all");
+  const { user: authUser, profile: authProfile, loading: authLoading } = useAuth();
+  const [profiles, setProfiles] = useState<AdminProfile[]>([]);
+  const [deliveries, setDeliveries] = useState<AdminDelivery[]>([]);
+  const [designCount, setDesignCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<DeliveryStatus | "all">(
+    "all"
+  );
   const [openProfile, setOpenProfile] = useState<string | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [pendingDeleteOrder, setPendingDeleteOrder] = useState<{
-    ownerId: "self" | string;
-    orderId: string;
-    designName: string;
-  } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<AdminDelivery | null>(null);
+  const [mutating, setMutating] = useState<string | null>(null);
 
-  const requestDeleteOrder = (
-    ownerId: "self" | string,
-    orderId: string,
-    designName: string
-  ) => setPendingDeleteOrder({ ownerId, orderId, designName });
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const [p, d, c] = await Promise.all([
+      listAllProfiles(),
+      listAllDeliveries(),
+      countAllDesigns(),
+    ]);
+    setError(p.error ?? d.error ?? c.error);
+    setProfiles(p.profiles);
+    setDeliveries(d.deliveries);
+    setDesignCount(c.count);
+    setLoading(false);
+  }, []);
 
-  // Build a unified list of all users (current + mocks) for the profiles section
-  const allUsers = useMemo(() => {
-    return [
-      {
-        id: "self" as const,
-        name: state.profile.name,
-        description: state.profile.description,
-        designs: state.designs,
-        deliveries: state.deliveries,
-      },
-      ...state.mockUsers.map((u) => ({
-        id: u.id,
-        name: u.name,
-        description: u.description,
-        designs: u.designs,
-        deliveries: u.deliveries,
-      })),
-    ];
-  }, [state]);
+  useEffect(() => {
+    if (!authUser || !authProfile?.is_admin) return;
+    void refresh();
+  }, [authUser, authProfile, refresh]);
 
-  // Flat list of all orders across all users
-  const allOrders: OrderRow[] = useMemo(() => {
-    const rows: OrderRow[] = [];
-    for (const u of allUsers) {
-      for (const o of u.deliveries) {
-        rows.push({
-          ownerId: u.id,
-          ownerName: u.name,
-          order: o,
-        });
-      }
+  // ----- access gates ------------------------------------------------------
+
+  if (authLoading) {
+    return (
+      <div className="grid place-items-center rounded-2xl bg-white px-4 py-12 text-sm text-[var(--muted)] ring-1 ring-[var(--border)]">
+        <SpinnerIcon size={24} />
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold">Admin panel</h1>
+        <p className="rounded-2xl bg-white p-6 text-center text-sm text-[var(--muted)] ring-1 ring-[var(--border)]">
+          Sign in with an admin account to manage Demoth.
+        </p>
+        <Link
+          href="/sign-in?next=/admin"
+          className="inline-flex items-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--primary-strong)]"
+        >
+          Sign in
+        </Link>
+      </div>
+    );
+  }
+
+  if (!authProfile?.is_admin) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold">Admin panel</h1>
+        <p className="rounded-2xl bg-red-50 p-6 text-center text-sm text-red-700 ring-1 ring-red-200">
+          You aren&apos;t an admin. If you should be, ask whoever set up the
+          Supabase project to run{" "}
+          <code className="rounded bg-white px-1 py-0.5 text-xs">
+            update public.profiles set is_admin = true where id = &apos;
+            {authUser.id}&apos;;
+          </code>{" "}
+          in the SQL Editor.
+        </p>
+      </div>
+    );
+  }
+
+  // ----- mutations --------------------------------------------------------
+
+  async function handleStatusChange(id: string, status: DeliveryStatus) {
+    setMutating(id);
+    const { error: e } = await setDeliveryStatus(id, status);
+    setMutating(null);
+    if (e) {
+      setError(e);
+      return;
     }
-    return rows.sort((a, b) => b.order.createdAt - a.order.createdAt);
-  }, [allUsers]);
+    // Optimistic local update so the UI feels snappy.
+    setDeliveries((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, status } : d))
+    );
+  }
 
-  const visibleOrders =
-    filter === "all" ? allOrders : allOrders.filter((r) => r.order.status === filter);
+  async function handleDelete() {
+    if (!pendingDelete) return;
+    setMutating(pendingDelete.id);
+    const { error: e } = await deleteDelivery(pendingDelete.id);
+    setMutating(null);
+    if (e) {
+      setError(e);
+      setPendingDelete(null);
+      return;
+    }
+    setDeliveries((prev) => prev.filter((d) => d.id !== pendingDelete.id));
+    setPendingDelete(null);
+  }
+
+  // ----- derived data -----------------------------------------------------
+
+  const visibleDeliveries =
+    statusFilter === "all"
+      ? deliveries
+      : deliveries.filter((d) => d.status === statusFilter);
 
   const stats = useMemo(() => {
-    const totalOrders = allOrders.length;
-    const totalRevenue = allOrders
-      .filter((r) => r.order.status !== "cancelled")
-      .reduce((s, r) => s + (r.order.price ?? ORDER_PRICE), 0);
-    const totalUsers = allUsers.length;
-    const totalDesigns = allUsers.reduce((s, u) => s + u.designs.length, 0);
-    return { totalOrders, totalRevenue, totalUsers, totalDesigns };
-  }, [allOrders, allUsers]);
+    const totalRevenue = deliveries
+      .filter((d) => d.status !== "cancelled")
+      .reduce((s, d) => s + d.price, 0);
+    return {
+      totalRevenue,
+      totalOrders: deliveries.length,
+      totalUsers: profiles.length,
+      totalDesigns: designCount,
+    };
+  }, [deliveries, profiles, designCount]);
 
   return (
     <div className="space-y-6">
@@ -98,7 +168,7 @@ export default function AdminPage() {
           </p>
           <h1 className="mt-1 text-3xl font-bold">Manage Demoth</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            View profiles, track all orders, change statuses.
+            Real users, real orders. Change statuses or delete bad data.
           </p>
         </div>
         <Link
@@ -109,77 +179,98 @@ export default function AdminPage() {
         </Link>
       </header>
 
+      {error && (
+        <p className="rounded-2xl bg-red-50 px-4 py-3 text-center text-sm text-red-700 ring-1 ring-red-200">
+          {error}
+        </p>
+      )}
+
       {/* Stats */}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Revenue" value={`$${stats.totalRevenue.toFixed(2)}`} primary />
-        <Stat label="Orders" value={hydrated ? stats.totalOrders : 0} />
-        <Stat label="Users" value={hydrated ? stats.totalUsers : 0} />
-        <Stat label="Designs" value={hydrated ? stats.totalDesigns : 0} />
+        <Stat
+          label="Revenue"
+          value={`$${stats.totalRevenue.toFixed(2)}`}
+          primary
+        />
+        <Stat label="Orders" value={loading ? "…" : stats.totalOrders} />
+        <Stat label="Users" value={loading ? "…" : stats.totalUsers} />
+        <Stat label="Designs" value={loading ? "…" : stats.totalDesigns} />
       </section>
 
       {/* Profiles */}
       <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xs uppercase tracking-widest text-[var(--muted)]">
-            All profiles ({hydrated ? allUsers.length : 0})
-          </h2>
-          <button
-            onClick={() => setShowResetConfirm(true)}
-            className="text-xs text-[var(--muted)] hover:text-[var(--primary)]"
-          >
-            Reset mocks
-          </button>
-        </div>
-        <ul className="space-y-2">
-          {allUsers.map((u) => {
-            const open = openProfile === u.id;
-            return (
-              <li
-                key={u.id}
-                className="rounded-2xl bg-white shadow-sm ring-1 ring-[var(--border)]"
-              >
-                <button
-                  onClick={() => setOpenProfile(open ? null : u.id)}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left"
+        <h2 className="mb-3 text-xs uppercase tracking-widest text-[var(--muted)]">
+          All profiles ({loading ? "…" : profiles.length})
+        </h2>
+        {loading ? (
+          <Loading />
+        ) : profiles.length === 0 ? (
+          <p className="rounded-2xl bg-white px-4 py-6 text-center text-sm text-[var(--muted)] ring-1 ring-[var(--border)]">
+            No profiles yet — nobody has signed up.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {profiles.map((u) => {
+              const open = openProfile === u.id;
+              const myDeliveries = deliveries.filter(
+                (d) => d.buyer.id === u.id
+              );
+              return (
+                <li
+                  key={u.id}
+                  className="rounded-2xl bg-white shadow-sm ring-1 ring-[var(--border)]"
                 >
-                  <div className="grid h-10 w-10 place-items-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]">
-                    <UserIcon size={20} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold">
-                      {u.name}{" "}
-                      {u.id === "self" && (
-                        <span className="ml-1 rounded bg-[var(--primary)] px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wider text-white">
-                          You
-                        </span>
-                      )}
-                    </p>
-                    <p className="truncate text-xs text-[var(--muted)]">
-                      {u.description || "No description"}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 gap-2 text-[11px] text-[var(--muted)]">
-                    <span>{u.designs.length} designs</span>
-                    <span>·</span>
-                    <span>{u.deliveries.length} orders</span>
-                  </div>
-                </button>
+                  <button
+                    onClick={() => setOpenProfile(open ? null : u.id)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left"
+                  >
+                    <Avatar name={u.name} src={u.avatar} size={40} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold">
+                        {u.name}
+                        {u.id === authUser.id && (
+                          <span className="ml-1 rounded bg-[var(--primary)] px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wider text-white">
+                            You
+                          </span>
+                        )}
+                        {u.isAdmin && (
+                          <span className="ml-1 rounded bg-amber-500 px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wider text-white">
+                            Admin
+                          </span>
+                        )}
+                        {u.premium && (
+                          <span className="ml-1 rounded bg-fuchsia-500 px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wider text-white">
+                            Premium
+                          </span>
+                        )}
+                      </p>
+                      <p className="truncate text-xs text-[var(--muted)]">
+                        @{u.username}
+                        {u.description && ` · ${u.description}`}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-2 text-[11px] text-[var(--muted)]">
+                      <span>{u.designCount} designs</span>
+                      <span>·</span>
+                      <span>{u.deliveryCount} orders</span>
+                    </div>
+                  </button>
 
-                {open && (
-                  <div className="border-t border-[var(--border)] px-4 py-4">
-                    <UserDetails
-                      designs={u.designs}
-                      deliveries={u.deliveries}
-                      ownerId={u.id}
-                      ownerName={u.name}
-                      onRequestDelete={requestDeleteOrder}
-                    />
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                  {open && (
+                    <div className="border-t border-[var(--border)] px-4 py-4">
+                      <UserOrders
+                        orders={myDeliveries}
+                        onChangeStatus={handleStatusChange}
+                        onDelete={(d) => setPendingDelete(d)}
+                        mutatingId={mutating}
+                      />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       {/* All orders */}
@@ -189,9 +280,9 @@ export default function AdminPage() {
             All orders
           </h2>
           <select
-            value={filter}
+            value={statusFilter}
             onChange={(e) =>
-              setFilter(e.target.value as DeliveryStatus | "all")
+              setStatusFilter(e.target.value as DeliveryStatus | "all")
             }
             className="rounded-lg border border-[var(--border)] bg-white px-2 py-1 text-xs"
           >
@@ -203,17 +294,21 @@ export default function AdminPage() {
           </select>
         </div>
 
-        {hydrated && visibleOrders.length === 0 ? (
+        {loading ? (
+          <Loading />
+        ) : visibleDeliveries.length === 0 ? (
           <p className="rounded-2xl bg-white px-4 py-6 text-center text-sm text-[var(--muted)] ring-1 ring-[var(--border)]">
             No orders match this filter.
           </p>
         ) : (
           <ul className="space-y-2">
-            {visibleOrders.map((row) => (
-              <OrderRowItem
-                key={row.order.id}
-                row={row}
-                onRequestDelete={requestDeleteOrder}
+            {visibleDeliveries.map((d) => (
+              <DeliveryRow
+                key={d.id}
+                row={d}
+                onChangeStatus={handleStatusChange}
+                onDelete={(row) => setPendingDelete(row)}
+                mutating={mutating === d.id}
               />
             ))}
           </ul>
@@ -221,140 +316,109 @@ export default function AdminPage() {
       </section>
 
       <ConfirmDialog
-        open={!!pendingDeleteOrder}
+        open={!!pendingDelete}
         title="Delete this order?"
         message={
-          pendingDeleteOrder && (
+          pendingDelete && (
             <>
               Permanently remove the order for{" "}
-              <strong>&quot;{pendingDeleteOrder.designName}&quot;</strong>?
+              <strong>&quot;{pendingDelete.designName}&quot;</strong> by{" "}
+              <strong>{pendingDelete.buyer.name}</strong>?
             </>
           )
         }
         confirmLabel="Delete"
         destructive
-        onConfirm={() => {
-          if (pendingDeleteOrder) {
-            deleteOrder(
-              pendingDeleteOrder.ownerId,
-              pendingDeleteOrder.orderId
-            );
-          }
-          setPendingDeleteOrder(null);
-        }}
-        onCancel={() => setPendingDeleteOrder(null)}
-      />
-
-      <ConfirmDialog
-        open={showResetConfirm}
-        title="Reset mock users?"
-        message="This restores Mia, Ravi, and Sky to their seeded designs and orders, undoing any changes you made."
-        confirmLabel="Reset"
-        onConfirm={() => {
-          resetMockUsers();
-          setShowResetConfirm(false);
-        }}
-        onCancel={() => setShowResetConfirm(false)}
+        onConfirm={handleDelete}
+        onCancel={() => setPendingDelete(null)}
       />
     </div>
   );
 }
 
-function UserDetails({
-  designs,
-  deliveries,
-  ownerId,
-  ownerName,
-  onRequestDelete,
+// ---- subcomponents -------------------------------------------------------
+
+function UserOrders({
+  orders,
+  onChangeStatus,
+  onDelete,
+  mutatingId,
 }: {
-  designs: Design[];
-  deliveries: Delivery[];
-  ownerId: "self" | string;
-  ownerName: string;
-  onRequestDelete: (ownerId: "self" | string, orderId: string, designName: string) => void;
+  orders: AdminDelivery[];
+  onChangeStatus: (id: string, status: DeliveryStatus) => void;
+  onDelete: (row: AdminDelivery) => void;
+  mutatingId: string | null;
 }) {
+  if (orders.length === 0) {
+    return (
+      <p className="text-xs text-[var(--muted)]">
+        This user hasn&apos;t placed any orders.
+      </p>
+    );
+  }
   return (
-    <div className="space-y-4">
-      <div>
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-          Designs ({designs.length})
-        </p>
-        {designs.length === 0 ? (
-          <p className="text-xs text-[var(--muted)]">No designs.</p>
-        ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {designs.map((d) => (
-              <div
-                key={d.id}
-                className="overflow-hidden rounded-xl bg-[var(--background)] p-1 ring-1 ring-[var(--border)]"
-              >
-                <DesignPreview design={d} className="h-24 w-full" />
-                <p className="mt-1 truncate px-1 text-[10px] font-medium">
-                  {displayName(d, designs)}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div>
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-          Orders ({deliveries.length})
-        </p>
-        {deliveries.length === 0 ? (
-          <p className="text-xs text-[var(--muted)]">No orders.</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {deliveries.map((o) => (
-              <OrderRowItem
-                key={o.id}
-                row={{ ownerId, ownerName, order: o }}
-                compact
-                onRequestDelete={onRequestDelete}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
+    <ul className="space-y-2">
+      {orders.map((o) => (
+        <DeliveryRow
+          key={o.id}
+          row={o}
+          compact
+          onChangeStatus={onChangeStatus}
+          onDelete={onDelete}
+          mutating={mutatingId === o.id}
+        />
+      ))}
+    </ul>
   );
 }
 
-function OrderRowItem({
+function DeliveryRow({
   row,
   compact,
-  onRequestDelete,
+  onChangeStatus,
+  onDelete,
+  mutating,
 }: {
-  row: OrderRow;
+  row: AdminDelivery;
   compact?: boolean;
-  onRequestDelete: (ownerId: "self" | string, orderId: string, designName: string) => void;
+  onChangeStatus: (id: string, status: DeliveryStatus) => void;
+  onDelete: (row: AdminDelivery) => void;
+  mutating: boolean;
 }) {
-  const { ownerId, ownerName, order } = row;
-  const price = order.price ?? ORDER_PRICE;
-
   return (
     <li
       className={`flex items-center gap-3 rounded-2xl bg-white ring-1 ring-[var(--border)] ${
         compact ? "px-3 py-2" : "px-4 py-3"
       }`}
     >
-      <div className="grid h-9 w-9 place-items-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]">
-        <TruckIcon size={18} />
+      {/* Thumbnail (real design preview when we have the data, else
+          a generic truck icon). */}
+      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[var(--background)]">
+        {row.design ? (
+          <DesignPreview design={row.design} className="h-full w-full" />
+        ) : (
+          <div className="grid h-full w-full place-items-center text-[var(--muted)]">
+            <TruckIcon size={20} />
+          </div>
+        )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{order.designName}</p>
-        <p className="truncate text-xs text-[var(--muted)]">
-          {ownerName} · {new Date(order.createdAt).toLocaleString()} · $
-          {price.toFixed(2)}
+        <p className="truncate text-sm font-semibold">{row.designName}</p>
+        <p className="truncate text-[11px] text-[var(--muted)]">
+          Buyer: {row.buyer.name}
+          {row.designer && ` · Designer: ${row.designer.name}`} ·{" "}
+          {new Date(row.createdAt).toLocaleString()} · $
+          {row.price.toFixed(2)}
         </p>
       </div>
       <select
-        value={order.status}
+        value={row.status}
+        disabled={mutating}
         onChange={(e) =>
-          updateOrderStatus(ownerId, order.id, e.target.value as DeliveryStatus)
+          onChangeStatus(row.id, e.target.value as DeliveryStatus)
         }
-        className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${statusClass(
-          order.status
+        className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-bold uppercase tracking-wider disabled:opacity-50 ${statusClass(
+          row.status
         )}`}
       >
         {STATUS_ORDER.map((s) => (
@@ -364,27 +428,15 @@ function OrderRowItem({
         ))}
       </select>
       <button
-        onClick={() => onRequestDelete(ownerId, order.id, order.designName)}
+        onClick={() => onDelete(row)}
+        disabled={mutating}
         aria-label="Delete order"
-        className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-red-50 hover:text-red-600"
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
       >
         <TrashIcon size={16} />
       </button>
     </li>
   );
-}
-
-function statusClass(status: DeliveryStatus) {
-  switch (status) {
-    case "pending":
-      return "border-amber-200 bg-amber-50 text-amber-800";
-    case "shipped":
-      return "border-blue-200 bg-blue-50 text-blue-800";
-    case "delivered":
-      return "border-green-200 bg-green-50 text-green-800";
-    case "cancelled":
-      return "border-zinc-200 bg-zinc-100 text-zinc-700";
-  }
 }
 
 function Stat({
@@ -415,3 +467,25 @@ function Stat({
     </div>
   );
 }
+
+function Loading() {
+  return (
+    <div className="grid place-items-center rounded-2xl bg-white px-4 py-10 ring-1 ring-[var(--border)]">
+      <SpinnerIcon size={24} />
+    </div>
+  );
+}
+
+function statusClass(status: DeliveryStatus) {
+  switch (status) {
+    case "pending":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "shipped":
+      return "border-blue-200 bg-blue-50 text-blue-800";
+    case "delivered":
+      return "border-green-200 bg-green-50 text-green-800";
+    case "cancelled":
+      return "border-zinc-200 bg-zinc-100 text-zinc-700";
+  }
+}
+
