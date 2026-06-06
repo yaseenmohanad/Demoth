@@ -189,22 +189,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!cancelled) setLoading(false);
     });
 
-    // Subscribe to auth changes (sign in, sign out, token refresh)
+    // Subscribe to auth changes (sign in, sign out, token refresh).
+    // Fast-path the user / activeUser updates synchronously so the UI
+    // flips the instant the session changes, then fire off
+    // fetchProfile + persistSession in the background. Awaiting them
+    // here would extend the "submitting…" period on the sign-in form
+    // by however long the Supabase REST round-trips take, which is
+    // exactly the lag the user reported.
     const { data: sub } = supabase.auth.onAuthStateChange(
-      async (event: string, session: Session | null) => {
+      (event: string, session: Session | null) => {
         const sessionUser = session?.user ?? null;
         setUser(sessionUser);
-        // Critical: this is what makes "switch account" / "sign out"
-        // visibly do something. Without it the entire app keeps reading
-        // the same localStorage bucket regardless of which Supabase
-        // user is signed in.
         setActiveUser(sessionUser?.id ?? null);
         if (sessionUser && session) {
-          const p = await fetchProfile(sessionUser.id);
-          setProfile(p);
-          // SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED all keep the
-          // device list current. SIGNED_OUT doesn't reach this branch.
-          await persistSession(session, p);
+          // Profile + saved-account refresh run in the background.
+          // Page can navigate / render in the meantime; profile state
+          // backfills when the row arrives.
+          void fetchProfile(sessionUser.id).then((p) => {
+            setProfile(p);
+            void persistSession(session, p);
+          });
         } else {
           setProfile(null);
         }
@@ -357,15 +361,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Don't rely on onAuthStateChange to fire here — some supabase-js
       // versions skip it when setSession was effectively a no-op refresh.
       // Re-read the session and update everything explicitly so the UI
-      // is guaranteed to flip to the new account immediately.
+      // is guaranteed to flip to the new account immediately. Profile
+      // fetch + saved-account refresh happen in the background so the
+      // switcher modal can close instantly.
       const { data: sessData } = await supabase.auth.getSession();
       const newSession = sessData.session;
       if (newSession?.user) {
         setUser(newSession.user);
         setActiveUser(newSession.user.id);
-        const p = await fetchProfile(newSession.user.id);
-        setProfile(p);
-        await persistSession(newSession, p);
+        void fetchProfile(newSession.user.id).then((p) => {
+          setProfile(p);
+          void persistSession(newSession, p);
+        });
       }
       return { error: null };
     },
