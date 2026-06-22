@@ -174,7 +174,9 @@ function FriendsTab() {
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold">{f.name}</p>
               <p className="truncate text-xs text-[var(--muted)]">
-                @{f.username}
+                {f.shareWardrobe
+                  ? "Shares their wardrobe with you"
+                  : "Friends"}
               </p>
             </div>
             <span className="rounded-full bg-[var(--primary-soft)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--primary)]">
@@ -250,9 +252,6 @@ function DiscoverTab() {
             <Avatar name={u.name} src={u.avatar} size={44} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold">{u.name}</p>
-              <p className="truncate text-xs text-[var(--muted)]">
-                @{u.username}
-              </p>
             </div>
             <button
               type="button"
@@ -407,7 +406,7 @@ function InboxTab() {
                     {inv.designName}
                   </strong>
                 </p>
-              </div>
+              </div>{/* edit-invite — no @username shown to protect privacy */}
               <button
                 type="button"
                 onClick={() => handleEditAccept(inv)}
@@ -444,7 +443,7 @@ function InboxTab() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-bold">{r.other.name}</p>
                 <p className="truncate text-xs text-[var(--muted)]">
-                  @{r.other.username} wants to be friends
+                  wants to be friends
                 </p>
               </div>
               <button
@@ -482,9 +481,6 @@ function InboxTab() {
               <Avatar name={r.other.name} src={r.other.avatar} size={40} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-bold">{r.other.name}</p>
-                <p className="truncate text-xs text-[var(--muted)]">
-                  @{r.other.username}
-                </p>
               </div>
               <StatusPill status={r.status} who="sent" />
             </li>
@@ -502,9 +498,6 @@ function InboxTab() {
               <Avatar name={r.other.name} src={r.other.avatar} size={40} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-bold">{r.other.name}</p>
-                <p className="truncate text-xs text-[var(--muted)]">
-                  @{r.other.username}
-                </p>
               </div>
               <StatusPill status={r.status} who="received" />
             </li>

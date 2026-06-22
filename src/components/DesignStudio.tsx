@@ -2288,9 +2288,6 @@ export default function DesignStudio() {
                       <Avatar name={f.name} src={f.avatar} size={36} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold">{f.name}</p>
-                        <p className="truncate text-[11px] text-[var(--muted)]">
-                          @{f.username}
-                        </p>
                       </div>
                       <button
                         type="button"

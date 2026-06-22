@@ -92,9 +92,6 @@ export default function FriendWardrobePage() {
         <Avatar name={profile.name} src={profile.avatar} size={56} />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-2xl font-bold">{profile.name}</h1>
-          <p className="truncate text-xs text-[var(--muted)]">
-            @{profile.username}
-          </p>
         </div>
       </header>
 
