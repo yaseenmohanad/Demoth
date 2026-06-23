@@ -37,16 +37,31 @@ const STATUS_ORDER: DeliveryStatus[] = [
  * Usernames whose @handle should be hidden from the admin panel
  * entirely. The row still shows up (name, badges, design + order
  * counts), the admin can still change statuses and delete orders;
- * only the email handle is suppressed. Add more entries here over
- * time when individual users want extra privacy.
+ * only the email handle is suppressed.
  *
  * Stored lowercase because normalizeHandle() lowercases everything
- * before it lands in the profiles row.
+ * before it lands in the profiles row. Entries are matched against
+ * the *local part* of the handle (before any `@` or our `-xxxx`
+ * collision suffix), so adding `"jesterfied"` here also hides:
+ *   - jesterfied
+ *   - jesterfied@gmail.com
+ *   - jesterfied-x7k2
+ *   - jesterfied-x7k2@gmail.com
  */
 const HIDDEN_HANDLES = new Set<string>(["jesterfied"]);
 
 function isHidden(username: string): boolean {
-  return HIDDEN_HANDLES.has(username.toLowerCase());
+  const u = username.toLowerCase();
+  for (const h of HIDDEN_HANDLES) {
+    if (
+      u === h ||
+      u.startsWith(h + "@") ||
+      u.startsWith(h + "-")
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export default function AdminPage() {
