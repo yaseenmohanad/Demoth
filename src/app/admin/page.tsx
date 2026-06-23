@@ -34,34 +34,24 @@ const STATUS_ORDER: DeliveryStatus[] = [
 ];
 
 /**
- * Usernames whose @handle should be hidden from the admin panel
- * entirely. The row still shows up (name, badges, design + order
- * counts), the admin can still change statuses and delete orders;
- * only the email handle is suppressed.
+ * Lowercase tokens that, when found anywhere in a user's username OR
+ * their display name, suppress the @handle line in the admin panel.
+ * Substring match so we don't have to know whether the user signed up
+ * as `jesterfied`, `jesterfied@gmail.com`, `thejesterfied`, or
+ * something with our `-xxxx` collision suffix — any of those hide.
  *
- * Stored lowercase because normalizeHandle() lowercases everything
- * before it lands in the profiles row. Entries are matched against
- * the *local part* of the handle (before any `@` or our `-xxxx`
- * collision suffix), so adding `"jesterfied"` here also hides:
- *   - jesterfied
- *   - jesterfied@gmail.com
- *   - jesterfied-x7k2
- *   - jesterfied-x7k2@gmail.com
+ * The row itself still renders (name, badges, design + order counts,
+ * status controls, delete button) — only the @handle is suppressed.
+ * False-positive risk is acceptable: another user would have to
+ * deliberately put one of these tokens in their handle or display
+ * name, which is unlikely for the short distinctive tokens we add.
  */
-const HIDDEN_HANDLES = new Set<string>(["jesterfied"]);
+const HIDDEN_TOKENS = ["jesterfied"];
 
-function isHidden(username: string): boolean {
-  const u = username.toLowerCase();
-  for (const h of HIDDEN_HANDLES) {
-    if (
-      u === h ||
-      u.startsWith(h + "@") ||
-      u.startsWith(h + "-")
-    ) {
-      return true;
-    }
-  }
-  return false;
+function isHidden(user: { username: string; name: string }): boolean {
+  const u = user.username.toLowerCase();
+  const n = user.name.toLowerCase();
+  return HIDDEN_TOKENS.some((t) => u.includes(t) || n.includes(t));
 }
 
 export default function AdminPage() {
@@ -276,7 +266,7 @@ export default function AdminPage() {
                         )}
                       </p>
                       <p className="truncate text-xs text-[var(--muted)]">
-                        {isHidden(u.username) ? (
+                        {isHidden(u) ? (
                           <span className="italic">email hidden</span>
                         ) : (
                           `@${u.username}`
