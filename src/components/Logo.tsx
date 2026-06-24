@@ -1,121 +1,40 @@
 "use client";
 
-import { useId } from "react";
+import Image from "next/image";
 
 interface Props {
-  /** Visual size in pixels. */
+  /** Visual size in pixels (used for both width and height). */
   size?: number;
-  /** When false, render the diamond static (no animation). */
+  /** No-op now — the previous SVG diamond logo spun via CSS. The new
+   *  PNG mark is static, but the prop is kept on the type so existing
+   *  call sites (`<Logo spinning={false} />`) don't break. */
   spinning?: boolean;
   className?: string;
 }
 
 /**
- * Demoth's faceted diamond logo. Four shaded facets give it depth, and a
- * CSS Y-axis rotation makes it look like a real gem turning slowly under
- * a light. The animation respects `prefers-reduced-motion`.
+ * Demoth's brand mark — the t-shirt + needle illustration with the
+ * wordmark underneath. Lives in /public/demoth-logo.png. Rendered
+ * via next/image so it's optimised by Next at request time.
+ *
+ * Sized square; the underlying image is square with the icon
+ * centered, so object-fit isn't needed. We do pass `priority` for
+ * larger renderings (home hero, premium upsell) so they're not
+ * deferred behind lazy-loading.
  */
 export default function Logo({
   size = 32,
-  spinning = true,
   className = "",
 }: Props) {
-  // Unique gradient IDs so multiple logos on the same page don't collide.
-  const uid = useId().replace(/:/g, "");
-  const gLight = `${uid}-light`;
-  const gMid = `${uid}-mid`;
-  const gDark = `${uid}-dark`;
-
   return (
-    <span
-      role="img"
-      aria-label="Demoth"
+    <Image
+      src="/demoth-logo.png"
+      alt="Demoth"
+      width={size}
+      height={size}
+      priority={size >= 64}
       className={`inline-block shrink-0 ${className}`}
-      // Perspective lives on the parent so the 3D rotation of the SVG
-      // inside has the right vanishing point.
-      style={{
-        width: size,
-        height: size,
-        perspective: `${size * 4}px`,
-      }}
-    >
-      <svg
-        viewBox="0 0 100 100"
-        width={size}
-        height={size}
-        className={spinning ? "demoth-logo-spin" : ""}
-        style={{ display: "block" }}
-      >
-        <defs>
-          {/* Bright facet — catches the most light */}
-          <linearGradient id={gLight} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#f5f3ff" />
-            <stop offset="60%" stopColor="#c4b5fd" />
-            <stop offset="100%" stopColor="#a78bfa" />
-          </linearGradient>
-          {/* Mid facet */}
-          <linearGradient id={gMid} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#a78bfa" />
-            <stop offset="100%" stopColor="#7c3aed" />
-          </linearGradient>
-          {/* Shadow facet — bottom side of the gem */}
-          <linearGradient id={gDark} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#6d28d9" />
-            <stop offset="100%" stopColor="#3b0764" />
-          </linearGradient>
-        </defs>
-
-        {/*  Faceted diamond, viewed face-on.
-              ┌─────────────┐  table (flat top)
-              ├──┬───┬───┬──┤  crown facets
-              │  │   │   │  │
-              ╰──┴───┴───┴──╯  girdle (widest)
-                 \\  |  /
-                  \\ | /        pavilion (V)
-                   \\|/
-                    V
-        */}
-
-        {/* Top-left crown */}
-        <polygon
-          points="50,8 18,40 50,40"
-          fill={`url(#${gLight})`}
-          stroke="white"
-          strokeWidth="0.8"
-          strokeLinejoin="round"
-        />
-        {/* Top-right crown */}
-        <polygon
-          points="50,8 82,40 50,40"
-          fill={`url(#${gMid})`}
-          stroke="white"
-          strokeWidth="0.8"
-          strokeLinejoin="round"
-        />
-        {/* Pavilion left (lower body) */}
-        <polygon
-          points="18,40 50,40 50,92"
-          fill={`url(#${gMid})`}
-          stroke="white"
-          strokeWidth="0.8"
-          strokeLinejoin="round"
-        />
-        {/* Pavilion right */}
-        <polygon
-          points="82,40 50,40 50,92"
-          fill={`url(#${gDark})`}
-          stroke="white"
-          strokeWidth="0.8"
-          strokeLinejoin="round"
-        />
-
-        {/* Glint — a tiny white sparkle on the bright facet */}
-        <polygon
-          points="32,28 38,22 36,32"
-          fill="white"
-          opacity="0.85"
-        />
-      </svg>
-    </span>
+      style={{ width: size, height: size }}
+    />
   );
 }
