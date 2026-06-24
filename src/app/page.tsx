@@ -14,12 +14,17 @@ export default function HomePage() {
   return (
     <div className="space-y-6">
       <header>
-        <div className="flex items-center gap-2">
-          {hydrated && profile.premium && <Logo size={28} />}
+        {/* Logo image already contains the wordmark, so we drop the
+            sibling "Demoth" label. The image only shows for premium
+            users so non-premium pages still need *something* up
+            top — fall back to the text-only badge in that case. */}
+        {hydrated && profile.premium ? (
+          <Logo size={36} />
+        ) : (
           <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
             Demoth
           </span>
-        </div>
+        )}
         <h1 className="mt-3 text-3xl font-bold leading-tight">
           Hello, {hydrated ? profile.name : "there"}!
           <br />

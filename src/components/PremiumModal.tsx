@@ -70,7 +70,7 @@ export default function PremiumModal({ open, onClose, onActivated }: Props) {
           <Logo size={40} />
           <div className="flex-1">
             <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
-              Demoth Premium
+              Premium
             </p>
             <h3 className="text-xl font-bold">Get Premium</h3>
           </div>

@@ -55,12 +55,13 @@ export default function ProfilePage() {
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            {hydrated && profile.premium && <Logo size={28} />}
+          {hydrated && profile.premium ? (
+            <Logo size={36} />
+          ) : (
             <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
               Demoth
             </span>
-          </div>
+          )}
           <h1 className="mt-3 text-3xl font-bold">Your account</h1>
         </div>
         <div className="flex items-center gap-2">
@@ -154,7 +155,7 @@ export default function ProfilePage() {
             <Logo size={36} />
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
-                Demoth Premium
+                Premium
               </p>
               <p className="text-sm font-bold">Unlock the marketplace & auto-correct</p>
             </div>

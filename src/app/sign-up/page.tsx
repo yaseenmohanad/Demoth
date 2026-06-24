@@ -84,12 +84,7 @@ function SignUpForm() {
     return (
       <div className="mx-auto max-w-sm space-y-4">
         <header className="text-center">
-          <div className="mx-auto mb-3 inline-flex items-center gap-2">
-            <Logo size={32} />
-            <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
-              Demoth
-            </span>
-          </div>
+          <Logo size={56} className="mx-auto mb-3" />
           <h1 className="text-2xl font-bold">You&apos;re in!</h1>
         </header>
 
@@ -128,12 +123,7 @@ function SignUpForm() {
   return (
     <div className="mx-auto max-w-sm space-y-6">
       <header className="text-center">
-        <div className="mx-auto mb-3 inline-flex items-center gap-2">
-          <Logo size={32} />
-          <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
-            Demoth
-          </span>
-        </div>
+        <Logo size={56} className="mx-auto mb-3" />
         <h1 className="text-3xl font-bold">Create your account</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Pick an email and password to get started.

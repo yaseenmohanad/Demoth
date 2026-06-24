@@ -48,12 +48,10 @@ function SignInForm() {
   return (
     <div className="mx-auto max-w-sm space-y-6">
       <header className="text-center">
-        <div className="mx-auto mb-3 inline-flex items-center gap-2">
-          <Logo size={32} />
-          <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
-            Demoth
-          </span>
-        </div>
+        {/* The logo image already includes the Demoth wordmark, so we
+            don't need a sibling text label here. Larger size since
+            it's the only brand element on the page. */}
+        <Logo size={56} className="mx-auto mb-3" />
         <h1 className="text-3xl font-bold">Welcome back</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Sign in to your account.
