@@ -5,6 +5,7 @@ import { useAppState, useHydrated } from "@/lib/store";
 import { displayName } from "@/lib/format";
 import DesignPreview from "@/components/DesignPreview";
 import Logo from "@/components/Logo";
+import SpinningDiamond from "@/components/SpinningDiamond";
 import { BrushIcon, TruckIcon, PlusIcon } from "@/components/Icons";
 
 export default function HomePage() {
@@ -14,16 +15,17 @@ export default function HomePage() {
   return (
     <div className="space-y-6">
       <header>
-        {/* Logo image already contains the wordmark, so we drop the
-            sibling "Demoth" label. The image only shows for premium
-            users so non-premium pages still need *something* up
-            top — fall back to the text-only badge in that case. */}
+        {/* Logo image carries the wordmark. Premium users also get
+            the spinning diamond next to it as a "you're premium"
+            indicator. Non-premium fall back to a text-only badge
+            so the brand still shows up top. */}
         {hydrated && profile.premium ? (
-          <Logo size={36} />
+          <div className="flex items-center gap-3">
+            <Logo size={72} />
+            <SpinningDiamond size={40} />
+          </div>
         ) : (
-          <span className="text-xs font-bold uppercase tracking-[0.25em] text-[var(--primary-strong)]">
-            Demoth
-          </span>
+          <Logo size={72} />
         )}
         <h1 className="mt-3 text-3xl font-bold leading-tight">
           Hello, {hydrated ? profile.name : "there"}!
