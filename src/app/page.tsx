@@ -20,12 +20,12 @@ export default function HomePage() {
             indicator. Non-premium fall back to a text-only badge
             so the brand still shows up top. */}
         {hydrated && profile.premium ? (
-          <div className="flex items-center gap-3">
-            <Logo size={72} />
-            <SpinningDiamond size={40} />
+          <div className="flex items-center gap-4">
+            <Logo size={128} />
+            <SpinningDiamond size={64} />
           </div>
         ) : (
-          <Logo size={72} />
+          <Logo size={128} />
         )}
         <h1 className="mt-3 text-3xl font-bold leading-tight">
           Hello, {hydrated ? profile.name : "there"}!

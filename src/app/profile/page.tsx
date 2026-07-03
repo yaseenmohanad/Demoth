@@ -57,12 +57,12 @@ export default function ProfilePage() {
       <header className="flex items-start justify-between gap-3">
         <div>
           {hydrated && profile.premium ? (
-            <div className="flex items-center gap-3">
-              <Logo size={64} />
-              <SpinningDiamond size={36} />
+            <div className="flex items-center gap-4">
+              <Logo size={112} />
+              <SpinningDiamond size={56} />
             </div>
           ) : (
-            <Logo size={64} />
+            <Logo size={112} />
           )}
           <h1 className="mt-3 text-3xl font-bold">Your account</h1>
         </div>

@@ -51,7 +51,7 @@ function SignInForm() {
         {/* The logo image already includes the Demoth wordmark, so we
             don't need a sibling text label here. Larger size since
             it's the only brand element on the page. */}
-        <Logo size={96} className="mx-auto mb-3" />
+        <Logo size={160} className="mx-auto mb-3" />
         <h1 className="text-3xl font-bold">Welcome back</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Sign in to your account.
