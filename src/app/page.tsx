@@ -22,7 +22,7 @@ export default function HomePage() {
         {hydrated && profile.premium ? (
           <div className="flex items-center gap-4">
             <Logo size={128} />
-            <SpinningDiamond size={64} />
+            <SpinningDiamond size={100} />
           </div>
         ) : (
           <Logo size={128} />
