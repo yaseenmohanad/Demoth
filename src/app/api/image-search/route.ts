@@ -1,127 +1,96 @@
 import { NextResponse } from "next/server";
 
 // Runs on Cloudflare via OpenNext + the `nodejs_compat` flag, which
-// gives us the full Node runtime (Buffer, etc.) — no need to force the
-// edge runtime here.
+// gives us the full Node runtime — no need to force the edge runtime.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-interface BingResult {
+interface ImageResult {
   thumb: string;
   full: string;
   title: string;
 }
 
-// Rotate User-Agents across parallel requests so Bing doesn't bot-detect us
-// and start returning a stripped-down (1-result) page.
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-];
-
+/**
+ * Image search endpoint for the design studio's "Add image" flow.
+ *
+ * We used to scrape Bing's image-search HTML, but from Cloudflare
+ * Workers IPs Bing routinely bot-detected us and served completely
+ * unrelated cached pages (search "sunset" → get cruise-ship images,
+ * search "moth" → get French real estate listings, etc.). Switched
+ * to the Openverse API — a free, keyless public API for openly-
+ * licensed images. Bonus: everything Openverse returns is Creative
+ * Commons or public-domain, so users can put these into their designs
+ * without worrying about copyright.
+ */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get("q") ?? "").trim();
   if (!q) {
-    return NextResponse.json({ images: [] satisfies BingResult[] });
+    return NextResponse.json({ images: [] satisfies ImageResult[] });
   }
 
-  // Hit the regular search page across multiple offsets. The async fragment
-  // endpoint is more aggressively rate-limited, while /images/search behaves
-  // consistently when we rotate User-Agents.
-  const offsets = [1, 35, 70];
-  const targets = offsets.map(
-    (first) =>
-      `https://www.bing.com/images/search?q=${encodeURIComponent(
+  // Openverse anonymous requests cap page_size at 20 per call. Fire
+  // 3 pages in parallel to build up a ~60-image grid.
+  const PAGE_SIZE = 20;
+  const PAGES = 3;
+  const urls = Array.from(
+    { length: PAGES },
+    (_, i) =>
+      `https://api.openverse.org/v1/images/?q=${encodeURIComponent(
         q
-      )}&form=HDRSC2&first=${first}&count=35&safesearch=Moderate`
+      )}&page_size=${PAGE_SIZE}&page=${i + 1}&format=json`
   );
 
-  const pages = await Promise.all(
-    targets.map(async (url, i) => {
+  const responses = await Promise.all(
+    urls.map(async (u) => {
       try {
-        const res = await fetch(url, {
+        const res = await fetch(u, {
           headers: {
-            "User-Agent": USER_AGENTS[i % USER_AGENTS.length],
-            Accept:
-              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
+            Accept: "application/json",
+            // Openverse asks for an identifying UA. Ours points at
+            // the Demoth repo so they can reach out if they need to.
+            "User-Agent":
+              "Demoth/1.0 (+https://github.com/yaseenmohanad/Demoth)",
           },
           cache: "no-store",
         });
-        if (!res.ok) return "";
-        return await res.text();
+        if (!res.ok) return null;
+        return (await res.json()) as OpenverseResponse;
       } catch {
-        return "";
+        return null;
       }
     })
   );
 
-  const html = pages.join("\n");
-  if (!html) {
+  // If EVERY page failed we surface an upstream error; a single bad
+  // page just gets skipped.
+  if (responses.every((r) => r === null)) {
     return NextResponse.json(
-      { images: [], error: "Upstream fetch failed" },
+      { images: [], error: "Openverse upstream unavailable" },
       { status: 502 }
     );
   }
 
-  const images: BingResult[] = [];
-  const seenMurl = new Set<string>();
-  const seenTurl = new Set<string>();
-
-  /**
-   * Bing wraps each image result in a metadata blob. Two HTML formats appear
-   * in the wild:
-   *   - m='{"murl":"...","turl":"...","t":"..."}'      (raw JSON, single-quoted)
-   *   - m="{&quot;murl&quot;:&quot;...&quot;,...}"     (HTML-entity encoded)
-   * We try both and decode entities for the second case.
-   */
-  const candidates: string[] = [];
-
-  // Single-quoted variant
-  const reSingle = /\sm='(\{[^']+?\})'/g;
-  let m: RegExpExecArray | null;
-  while ((m = reSingle.exec(html)) !== null) candidates.push(m[1]);
-
-  // Double-quoted, HTML-entity encoded variant
-  const reDouble = /\sm="(\{(?:&quot;|[^"])+?\})"/g;
-  while ((m = reDouble.exec(html)) !== null) {
-    candidates.push(decodeHtmlEntities(m[1]));
-  }
-
-  for (const raw of candidates) {
-    try {
-      const obj = JSON.parse(raw) as {
-        murl?: string;
-        turl?: string;
-        t?: string;
-      };
-      if (!obj.murl || !obj.turl) continue;
-      // Drop entries we've seen before by source URL OR by thumbnail URL.
-      // The latter prevents the grid from looking like the same image
-      // copied 60 times when Bing returns a bunch of stock-image entries
-      // that all share a placeholder thumbnail.
-      if (seenMurl.has(obj.murl)) continue;
-      if (seenTurl.has(obj.turl)) continue;
-      seenMurl.add(obj.murl);
-      seenTurl.add(obj.turl);
+  // Map Openverse rows to the {thumb, full, title} shape the front-end
+  // has always expected. Drop entries missing a usable URL so we never
+  // hand the grid a card it can't render, and de-dupe by url so
+  // pages that overlap don't show the same picture twice.
+  const seen = new Set<string>();
+  const images: ImageResult[] = [];
+  for (const raw of responses) {
+    for (const r of raw?.results ?? []) {
+      if (!r?.url) continue;
+      if (seen.has(r.url)) continue;
+      seen.add(r.url);
       images.push({
-        full: obj.murl,
-        thumb: obj.turl,
-        title: stripTags((obj.t ?? "").slice(0, 200)).slice(0, 120),
+        full: r.url,
+        thumb: r.thumbnail || r.url,
+        title: (r.title ?? "").trim().slice(0, 120),
       });
-      if (images.length >= 60) break;
-    } catch {
-      // skip malformed entry
     }
   }
 
-  // Belt-and-braces no-cache headers. Netlify's edge respects the
-  // Netlify-CDN-Cache-Control variant specifically, and the browser uses
-  // `no-store` to skip its own cache. Without these, different queries
-  // could end up sharing a cached response in some setups.
   return NextResponse.json(
     { images },
     {
@@ -134,16 +103,22 @@ export async function GET(request: Request) {
   );
 }
 
-function decodeHtmlEntities(s: string): string {
-  return s
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
+// ---- Openverse response shape (subset we care about) ---------------------
+interface OpenverseImage {
+  id?: string;
+  title?: string;
+  /** Original / full-resolution URL. */
+  url: string;
+  /** Sized-down preview URL, roughly ~640px on the longest side. Can
+   *  sometimes be missing on very small entries; we fall back to `url`. */
+  thumbnail?: string;
+  creator?: string;
+  creator_url?: string;
+  license?: string;
 }
 
-function stripTags(s: string): string {
-  return s.replace(/<[^>]*>/g, "").trim();
+interface OpenverseResponse {
+  result_count?: number;
+  page_count?: number;
+  results?: OpenverseImage[];
 }
