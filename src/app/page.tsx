@@ -5,7 +5,6 @@ import { useAppState, useHydrated } from "@/lib/store";
 import { displayName } from "@/lib/format";
 import DesignPreview from "@/components/DesignPreview";
 import Logo from "@/components/Logo";
-import SpinningDiamond from "@/components/SpinningDiamond";
 import { BrushIcon, TruckIcon, PlusIcon } from "@/components/Icons";
 
 export default function HomePage() {
@@ -19,14 +18,7 @@ export default function HomePage() {
             the spinning diamond next to it as a "you're premium"
             indicator. Non-premium fall back to a text-only badge
             so the brand still shows up top. */}
-        {hydrated && profile.premium ? (
-          <div className="flex items-center gap-4">
-            <Logo size={128} />
-            <SpinningDiamond size={100} />
-          </div>
-        ) : (
-          <Logo size={128} />
-        )}
+        <Logo size={56} premium={hydrated && profile.premium} />
         <h1 className="mt-3 text-3xl font-bold leading-tight">
           Hello, {hydrated ? profile.name : "there"}!
           <br />

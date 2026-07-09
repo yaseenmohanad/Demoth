@@ -11,7 +11,6 @@ import Avatar from "@/components/Avatar";
 import AvatarCropModal from "@/components/AvatarCropModal";
 import PremiumModal from "@/components/PremiumModal";
 import Logo from "@/components/Logo";
-import SpinningDiamond from "@/components/SpinningDiamond";
 import { SettingsIcon, TrashIcon, UploadIcon } from "@/components/Icons";
 
 /** Read a File as a data URL so we can hand it to the avatar crop modal. */
@@ -56,14 +55,7 @@ export default function ProfilePage() {
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-3">
         <div>
-          {hydrated && profile.premium ? (
-            <div className="flex items-center gap-4">
-              <Logo size={112} />
-              <SpinningDiamond size={88} />
-            </div>
-          ) : (
-            <Logo size={112} />
-          )}
+          <Logo size={48} premium={hydrated && profile.premium} />
           <h1 className="mt-3 text-3xl font-bold">Your account</h1>
         </div>
         <div className="flex items-center gap-2">
@@ -154,7 +146,7 @@ export default function ProfilePage() {
       {hydrated && !profile.premium && (
         <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-amber-50 via-fuchsia-50 to-violet-50 p-5 shadow-sm ring-1 ring-[var(--border)]">
           <div className="flex items-center gap-3">
-            <Logo size={36} />
+            <Logo size={22} />
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
                 Premium

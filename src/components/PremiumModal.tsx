@@ -67,7 +67,7 @@ export default function PremiumModal({ open, onClose, onActivated }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3">
-          <Logo size={40} />
+          <Logo size={28} />
           <div className="flex-1">
             <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
               Premium

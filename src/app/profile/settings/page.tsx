@@ -116,7 +116,7 @@ export default function SettingsPage() {
               Active
             </span>
           }
-          icon={<Logo size={20} />}
+          icon={<Logo size={18} />}
         >
           <ToggleRow
             label="Auto-correct"
