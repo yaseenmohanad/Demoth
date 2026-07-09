@@ -10,6 +10,7 @@ import { ArrowLeftIcon, SettingsIcon } from "@/components/Icons";
 import Logo from "@/components/Logo";
 import AccountSwitcherModal from "@/components/AccountSwitcherModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import ResetPasswordModal from "@/components/ResetPasswordModal";
 
 /**
  * Mirror a privacy/wardrobe toggle to the Supabase profiles row when
@@ -46,6 +47,7 @@ export default function SettingsPage() {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [premiumOffOpen, setPremiumOffOpen] = useState(false);
+  const [resetPwOpen, setResetPwOpen] = useState(false);
 
   // Defaults — see Profile interface comments for the rationale.
   const showOnFriends = profile.showOnFriends ?? true;
@@ -90,6 +92,17 @@ export default function SettingsPage() {
         >
           {authUser ? "Sign out" : "Go to sign-in"}
         </button>
+        {/* Password reset only shown to signed-in users — there's
+            no password to reset for a guest. */}
+        {authUser && (
+          <button
+            type="button"
+            onClick={() => setResetPwOpen(true)}
+            className="w-full rounded-2xl bg-white px-3 py-2.5 text-left text-sm font-semibold text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--foreground)]"
+          >
+            Reset password
+          </button>
+        )}
       </Section>
 
       <Section title="Privacy">
@@ -149,6 +162,11 @@ export default function SettingsPage() {
       <AccountSwitcherModal
         open={switcherOpen}
         onClose={() => setSwitcherOpen(false)}
+      />
+
+      <ResetPasswordModal
+        open={resetPwOpen}
+        onClose={() => setResetPwOpen(false)}
       />
 
       <ConfirmDialog
