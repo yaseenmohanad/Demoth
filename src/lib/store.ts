@@ -11,6 +11,11 @@ import type {
 } from "./types";
 import { ORDER_PRICE } from "./types";
 import { strokeBBox } from "./element-transform";
+import {
+  pushDesignToDb,
+  deleteDesignFromDb,
+  pushProfileToDb,
+} from "./sync";
 
 /** Pre-account-system localStorage key. Claimed once by the first
  *  signed-in user on a device and then deleted, so pre-existing data
@@ -341,6 +346,31 @@ export function setActiveUser(userId: string | null) {
   emit();
 }
 
+/**
+ * Overwrite the local store with data pulled from Supabase. Called by
+ * the AuthProvider right after sign-in so a user who signed up on
+ * Device A sees the same profile / designs when they log in on
+ * Device B, and so the display name they picked at signup shows up
+ * (instead of the default "Alex").
+ *
+ * Fields not present in the patch are left as-is. Passing `designs`
+ * REPLACES the local design list; we intentionally don't merge, since
+ * the server is the source of truth once the user is signed in.
+ */
+export function hydrateFromDb(patch: {
+  profile?: Partial<Profile>;
+  designs?: Design[];
+}) {
+  ensureHydrated();
+  memoryState = {
+    ...memoryState,
+    profile: { ...memoryState.profile, ...(patch.profile ?? {}) },
+    designs: patch.designs ?? memoryState.designs,
+  };
+  saveToStorage(memoryState);
+  emit();
+}
+
 /** Returns true once the client has mounted and read localStorage. */
 export function useHydrated() {
   const [ok, setOk] = useState(false);
@@ -352,24 +382,49 @@ export function useHydrated() {
 
 export function updateProfile(patch: Partial<Profile>) {
   setState((s) => ({ ...s, profile: { ...s.profile, ...patch } }));
+  // Fire-and-forget push to Supabase so signing in on another device
+  // sees the same profile. No-op for guests.
+  void pushProfileToDb(patch);
 }
 
 export function saveDesign(design: Design) {
+  const stamped: Design = { ...design, updatedAt: Date.now() };
   setState((s) => {
-    const idx = s.designs.findIndex((d) => d.id === design.id);
+    const idx = s.designs.findIndex((d) => d.id === stamped.id);
     const next = [...s.designs];
-    if (idx >= 0) next[idx] = { ...design, updatedAt: Date.now() };
-    else next.unshift({ ...design, updatedAt: Date.now() });
+    if (idx >= 0) next[idx] = stamped;
+    else next.unshift(stamped);
     return { ...s, designs: next };
+  });
+
+  // Fire-and-forget push to Supabase so the design is cross-device.
+  // If this was a first-time save (no publishedId), the DB assigns a
+  // UUID which we write back into the local design so subsequent
+  // saves target the same row.
+  void pushDesignToDb(stamped).then(({ publishedId }) => {
+    if (publishedId && publishedId !== stamped.publishedId) {
+      setState((s) => ({
+        ...s,
+        designs: s.designs.map((d) =>
+          d.id === stamped.id ? { ...d, publishedId } : d
+        ),
+      }));
+    }
   });
 }
 
 export function deleteDesign(id: string) {
+  // Find the design first so we know if there's a DB row to also delete.
+  ensureHydrated();
+  const doomed = memoryState.designs.find((d) => d.id === id);
   setState((s) => ({
     ...s,
     designs: s.designs.filter((d) => d.id !== id),
     deliveries: s.deliveries.filter((d) => d.designId !== id),
   }));
+  if (doomed?.publishedId) {
+    void deleteDesignFromDb(doomed.publishedId);
+  }
 }
 
 export function getDesign(id: string): Design | undefined {

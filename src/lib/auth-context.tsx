@@ -17,7 +17,9 @@ import {
   removeSavedAccount,
   type SavedAccount,
 } from "./saved-accounts";
-import { setActiveUser } from "./store";
+import { setActiveUser, hydrateFromDb } from "./store";
+import { fetchMyDesigns } from "./sync";
+import type { Profile } from "./types";
 
 interface AuthState {
   /** The auth.users record (id, email, etc.). null when signed out. */
@@ -125,6 +127,43 @@ async function fetchProfile(userId: string): Promise<DbProfile | null> {
   return data as DbProfile;
 }
 
+/**
+ * Map the DbProfile snake_case fields to the local Profile shape and
+ * push them into the useAppState store so the UI shows the user's
+ * real display name / avatar / toggle states, not the guest defaults.
+ * Also fetches the user's designs and hydrates those. Runs on every
+ * sign-in / initial-session-check.
+ */
+async function hydrateStoreFromDb(dbProfile: DbProfile | null) {
+  if (!dbProfile) return;
+  // DbProfile only types the columns from the very first migration.
+  // Later migrations added show_on_friends + share_wardrobe. We read
+  // them off the raw row via a widened cast.
+  const row = dbProfile as DbProfile & {
+    show_on_friends?: boolean;
+    share_wardrobe?: boolean;
+  };
+  const profilePatch: Partial<Profile> = {
+    name: row.name,
+    description: row.description,
+    avatar: row.avatar ?? undefined,
+    premium: row.premium ?? undefined,
+    autoCorrect: row.auto_correct ?? undefined,
+    showOnFriends: row.show_on_friends,
+    shareWardrobe: row.share_wardrobe,
+  };
+  hydrateFromDb({ profile: profilePatch });
+
+  // Fetch designs in the background so signing in on a new device
+  // repopulates the wardrobe. We ONLY replace local designs when the
+  // server has at least one — otherwise we'd wipe out any local-only
+  // designs a user made before this sync code shipped.
+  const { designs } = await fetchMyDesigns();
+  if (designs.length > 0) {
+    hydrateFromDb({ designs });
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<DbProfile | null>(null);
@@ -183,6 +222,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // profile (so display name / avatar in the switcher stay
           // up to date).
           await persistSession(session, p);
+          // Mirror DB profile + designs into the local store so
+          // cross-device sign-ins see the same wardrobe.
+          void hydrateStoreFromDb(p);
         }
       }
       refreshSaved();
@@ -208,6 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           void fetchProfile(sessionUser.id).then((p) => {
             setProfile(p);
             void persistSession(session, p);
+            void hydrateStoreFromDb(p);
           });
         } else {
           setProfile(null);
@@ -422,6 +465,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void fetchProfile(newSession.user.id).then((p) => {
         setProfile(p);
         void persistSession(newSession, p);
+        void hydrateStoreFromDb(p);
       });
       return { error: null };
     },
