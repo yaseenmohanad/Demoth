@@ -250,7 +250,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           void fetchProfile(sessionUser.id).then((p) => {
             setProfile(p);
             void persistSession(session, p);
-            void hydrateStoreFromDb(p);
+            // ONLY hydrate the local store on an actual SIGN-IN event.
+            // TOKEN_REFRESHED / USER_UPDATED fire periodically while
+            // the user is active — hydrating on those would clobber
+            // any local profile edit that hadn't reached the DB yet
+            // (the "PFP + description resets" bug). The initial-mount
+            // getSession() call above handles the page-load case
+            // separately.
+            if (event === "SIGNED_IN") {
+              void hydrateStoreFromDb(p);
+            }
           });
         } else {
           setProfile(null);

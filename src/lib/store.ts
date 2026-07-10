@@ -196,6 +196,17 @@ let memoryState: AppState = defaultState;
 let hydrated = false;
 const listeners = new Set<() => void>();
 
+/**
+ * Tracks in-flight pushDesignToDb calls per local design id, so a
+ * quick save-then-delete doesn't race: deleteDesign waits for the
+ * pending save's promise to resolve, then uses the resulting
+ * publishedId to delete the row from the DB. Without this, saves
+ * that resolved after the local delete left orphan rows in the
+ * DB — which then reappeared on sign-in as "deleted clothes came
+ * back" bugs.
+ */
+const pendingDesignSaves = new Map<string, Promise<string | null>>();
+
 function emit() {
   for (const l of listeners) l();
 }
@@ -398,10 +409,10 @@ export function saveDesign(design: Design) {
   });
 
   // Fire-and-forget push to Supabase so the design is cross-device.
-  // If this was a first-time save (no publishedId), the DB assigns a
-  // UUID which we write back into the local design so subsequent
-  // saves target the same row.
-  void pushDesignToDb(stamped).then(({ publishedId }) => {
+  // The promise is kept in pendingDesignSaves so deleteDesign can
+  // wait on it if the user deletes this design before the save
+  // completes.
+  const savePromise = pushDesignToDb(stamped).then(({ publishedId }) => {
     if (publishedId && publishedId !== stamped.publishedId) {
       setState((s) => ({
         ...s,
@@ -410,11 +421,14 @@ export function saveDesign(design: Design) {
         ),
       }));
     }
+    pendingDesignSaves.delete(stamped.id);
+    return publishedId;
   });
+  pendingDesignSaves.set(stamped.id, savePromise);
+  void savePromise;
 }
 
 export function deleteDesign(id: string) {
-  // Find the design first so we know if there's a DB row to also delete.
   ensureHydrated();
   const doomed = memoryState.designs.find((d) => d.id === id);
   setState((s) => ({
@@ -422,8 +436,20 @@ export function deleteDesign(id: string) {
     designs: s.designs.filter((d) => d.id !== id),
     deliveries: s.deliveries.filter((d) => d.designId !== id),
   }));
+
   if (doomed?.publishedId) {
     void deleteDesignFromDb(doomed.publishedId);
+    return;
+  }
+  // No publishedId locally — but a save might be in flight that
+  // will assign one. Chain the DB delete on the pending save so
+  // the deleted design doesn't leave an orphan row that would come
+  // back on sign-in elsewhere.
+  const pending = pendingDesignSaves.get(id);
+  if (pending) {
+    void pending.then((publishedId) => {
+      if (publishedId) void deleteDesignFromDb(publishedId);
+    });
   }
 }
 
