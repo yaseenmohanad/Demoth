@@ -12,6 +12,15 @@ import AvatarCropModal from "@/components/AvatarCropModal";
 import PremiumModal from "@/components/PremiumModal";
 import Logo from "@/components/Logo";
 import { SettingsIcon, TrashIcon, UploadIcon } from "@/components/Icons";
+import { useAuth } from "@/lib/auth-context";
+
+/**
+ * Only this specific Supabase user is allowed to see the "Admin
+ * panel" link on the Profile page. Everyone else's Profile stays
+ * clean. This is the app owner's account ID — hardcoded on purpose,
+ * per the user's request.
+ */
+const ADMIN_UI_USER_ID = "debfed5b-f643-4c65-8195-dc96889acf1f";
 
 /** Read a File as a data URL so we can hand it to the avatar crop modal. */
 function fileToDataUrl(file: File): Promise<string> {
@@ -26,6 +35,8 @@ function fileToDataUrl(file: File): Promise<string> {
 export default function ProfilePage() {
   const { profile, designs } = useAppState();
   const hydrated = useHydrated();
+  const { user: authUser } = useAuth();
+  const showAdminLink = authUser?.id === ADMIN_UI_USER_ID;
   const [pendingDelete, setPendingDelete] = useState<{
     id: string;
     label: string;
@@ -67,12 +78,14 @@ export default function ProfilePage() {
           >
             <SettingsIcon size={18} />
           </Link>
-          <Link
-            href="/admin"
-            className="rounded-xl bg-[var(--primary-soft)] px-3 py-2 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-soft)] hover:bg-[var(--primary)] hover:text-white"
-          >
-            Admin panel
-          </Link>
+          {showAdminLink && (
+            <Link
+              href="/admin"
+              className="rounded-xl bg-[var(--primary-soft)] px-3 py-2 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-soft)] hover:bg-[var(--primary)] hover:text-white"
+            >
+              Admin panel
+            </Link>
+          )}
         </div>
       </header>
 

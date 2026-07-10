@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -55,7 +56,13 @@ function isHidden(user: { username: string; name: string }): boolean {
 }
 
 export default function AdminPage() {
-  const { user: authUser, profile: authProfile, loading: authLoading } = useAuth();
+  const router = useRouter();
+  const {
+    user: authUser,
+    profile: authProfile,
+    loading: authLoading,
+    signOut,
+  } = useAuth();
   const [profiles, setProfiles] = useState<AdminProfile[]>([]);
   const [deliveries, setDeliveries] = useState<AdminDelivery[]>([]);
   const [designCount, setDesignCount] = useState(0);
@@ -67,6 +74,23 @@ export default function AdminPage() {
   const [openProfile, setOpenProfile] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<AdminDelivery | null>(null);
   const [mutating, setMutating] = useState<string | null>(null);
+
+  // Admin shortcut mode: if the sign-in page set this flag, allow the
+  // panel to render without a real session. Queries may still fail
+  // when there's no auth, but the shell + any anon-visible rows still
+  // show. Read from sessionStorage inside an effect so SSR doesn't
+  // touch window.
+  const [shortcutMode, setShortcutMode] = useState(false);
+  useEffect(() => {
+    try {
+      setShortcutMode(
+        typeof window !== "undefined" &&
+          sessionStorage.getItem("demoth-admin-shortcut") === "1"
+      );
+    } catch {
+      /* private mode */
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -82,10 +106,26 @@ export default function AdminPage() {
     setLoading(false);
   }, []);
 
+  // Derived data — MUST be declared before any early-return gates so
+  // React's hook ordering stays stable across the gate transitions.
+  const stats = useMemo(() => {
+    const totalRevenue = deliveries
+      .filter((d) => d.status !== "cancelled")
+      .reduce((s, d) => s + d.price, 0);
+    return {
+      totalRevenue,
+      totalOrders: deliveries.length,
+      totalUsers: profiles.length,
+      totalDesigns: designCount,
+    };
+  }, [deliveries, profiles, designCount]);
+
   useEffect(() => {
-    if (!authUser || !authProfile?.is_admin) return;
+    const allowed =
+      shortcutMode || (!!authUser && !!authProfile?.is_admin);
+    if (!allowed) return;
     void refresh();
-  }, [authUser, authProfile, refresh]);
+  }, [authUser, authProfile, shortcutMode, refresh]);
 
   // ----- access gates ------------------------------------------------------
 
@@ -97,7 +137,9 @@ export default function AdminPage() {
     );
   }
 
-  if (!authUser) {
+  // In shortcut mode we skip both "not signed in" and "not admin"
+  // gates — the user typed the magic email in sign-in, they get in.
+  if (!shortcutMode && !authUser) {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-bold">Admin panel</h1>
@@ -114,7 +156,7 @@ export default function AdminPage() {
     );
   }
 
-  if (!authProfile?.is_admin) {
+  if (!shortcutMode && !authProfile?.is_admin) {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-bold">Admin panel</h1>
@@ -123,7 +165,7 @@ export default function AdminPage() {
           Supabase project to run{" "}
           <code className="rounded bg-white px-1 py-0.5 text-xs">
             update public.profiles set is_admin = true where id = &apos;
-            {authUser.id}&apos;;
+            {authUser?.id ?? "your-user-id"}&apos;;
           </code>{" "}
           in the SQL Editor.
         </p>
@@ -168,18 +210,6 @@ export default function AdminPage() {
       ? deliveries
       : deliveries.filter((d) => d.status === statusFilter);
 
-  const stats = useMemo(() => {
-    const totalRevenue = deliveries
-      .filter((d) => d.status !== "cancelled")
-      .reduce((s, d) => s + d.price, 0);
-    return {
-      totalRevenue,
-      totalOrders: deliveries.length,
-      totalUsers: profiles.length,
-      totalDesigns: designCount,
-    };
-  }, [deliveries, profiles, designCount]);
-
   return (
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-3">
@@ -192,12 +222,25 @@ export default function AdminPage() {
             Real users, real orders. Change statuses or delete bad data.
           </p>
         </div>
-        <Link
-          href="/profile"
+        <button
+          type="button"
+          onClick={async () => {
+            // Both leave-the-panel paths need to clear the shortcut
+            // flag; a real signed-in admin also gets a full sign-out.
+            try {
+              sessionStorage.removeItem("demoth-admin-shortcut");
+            } catch {
+              /* private mode */
+            }
+            if (authUser) {
+              await signOut();
+            }
+            router.push("/sign-in");
+          }}
           className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--foreground)]"
         >
-          Exit
-        </Link>
+          Sign out
+        </button>
       </header>
 
       {error && (
@@ -249,7 +292,7 @@ export default function AdminPage() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-bold">
                         {u.name}
-                        {u.id === authUser.id && (
+                        {u.id === authUser?.id && (
                           <span className="ml-1 rounded bg-[var(--primary)] px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wider text-white">
                             You
                           </span>

