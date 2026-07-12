@@ -12,6 +12,71 @@
   --accent: #a78bfa;
 }
 
+/* Dark theme — activated by the `data-theme="dark"` attribute on
+   <html>, which the layout writes from the user's Settings toggle. */
+html[data-theme="dark"] {
+  --background: #0f0b1a;
+  --foreground: #f5f0ff;
+  --card: #1c1730;
+  --muted: #9e94b8;
+  --border: #2c2440;
+  --primary: #a78bfa;
+  --primary-soft: #2c2247;
+  --primary-strong: #c4b5fd;
+  --accent: #8b5cf6;
+}
+
+/* Dark-mode "swaps" for hard-coded Tailwind color classes used
+   throughout the app. Ideally every card would use bg-[var(--card)]
+   from the start, but we've got a lot of bg-white / bg-red-50 style
+   utilities in existing components — force them to the theme
+   equivalents so dark mode actually looks dark. */
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+/* Tailwind's utilities land in a CSS layer with higher priority than
+   plain rules, so we need `!important` to actually override them from
+   this file. Ugly but reliable — the alternative is porting every
+   bg-white in the codebase to bg-[var(--card)]. */
+html[data-theme="dark"] .bg-white {
+  background-color: var(--card) !important;
+  color: var(--foreground);
+}
+html[data-theme="dark"] .text-black {
+  color: var(--foreground) !important;
+}
+html[data-theme="dark"] .bg-amber-50 {
+  background-color: rgba(251, 191, 36, 0.15) !important;
+}
+html[data-theme="dark"] .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+}
+html[data-theme="dark"] .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+}
+html[data-theme="dark"] .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+}
+html[data-theme="dark"] .bg-violet-50 {
+  background-color: rgba(139, 92, 246, 0.15) !important;
+}
+html[data-theme="dark"] .bg-zinc-100 {
+  background-color: rgba(161, 161, 170, 0.15) !important;
+}
+html[data-theme="dark"] .bg-black\/40 {
+  background-color: rgba(0, 0, 0, 0.65) !important;
+}
+html[data-theme="dark"] .ring-amber-200,
+html[data-theme="dark"] .ring-emerald-200,
+html[data-theme="dark"] .ring-red-200,
+html[data-theme="dark"] .ring-blue-200,
+html[data-theme="dark"] .ring-violet-200,
+html[data-theme="dark"] .ring-zinc-200 {
+  --tw-ring-color: rgba(255, 255, 255, 0.1) !important;
+}
+/* Amber/red/emerald text colors used inside light-tinted pills stay
+   the same — they read fine on the low-alpha backgrounds above. */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

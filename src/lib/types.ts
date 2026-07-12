@@ -129,6 +129,16 @@ export interface Profile {
    *  see the wardrobe (their saved designs) from the friends list.
    *  Defaults to false — sharing is opt-in. */
   shareWardrobe?: boolean;
+  /** UI theme. "light" (default) or "dark". Persisted per user so
+   *  the choice follows them across devices. */
+  theme?: "light" | "dark";
+  /** Custom background: any valid CSS color (hex, rgb, etc.).
+   *  When set, replaces the default page background. `bgImage`
+   *  takes priority if both are set. */
+  bgColor?: string;
+  /** Custom background image — either a preset URL from
+   *  /public/bg-*.jpg or a base64 data URL from a user upload. */
+  bgImage?: string;
 }
 
 export type DeliveryStatus = "pending" | "shipped" | "delivered" | "cancelled";
