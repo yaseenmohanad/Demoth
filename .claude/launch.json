@@ -8,7 +8,19 @@
       "port": 5599
     },
     {
-      "name": "demoth",
+      "name": "kids-task-tracker",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "http-server", "C:/Users/QK/kids-task-tracker/public", "-p", "5601", "-c-1"],
+      "port": 5601
+    },
+    {
+      "name": "orderii-sky-game",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "http-server", "C:/Users/QK/orderii-sky-game", "-p", "5603", "-c-1"],
+      "port": 5603
+    },
+    {
+      "name": "next-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000

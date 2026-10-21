@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type {
   ChangeEvent,
@@ -8,7 +8,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import {
-  saveDesign,
+  saveDesign as storeSaveDesign,
   deleteDesign,
   getDesign,
   makeId,
@@ -21,6 +21,7 @@ import type {
   Design,
   DesignElement,
   GarmentType,
+  GarmentSide,
   ShapeVariant,
 } from "@/lib/types";
 import { garmentPath, GarmentDetails } from "@/components/Garment";
@@ -306,6 +307,13 @@ export default function DesignStudio() {
 
   const [design, setDesign] = useState<Design>(() => newDraft());
   const [garmentChosen, setGarmentChosen] = useState(false);
+  /** Which side of the garment is currently visible / editable. Flipping
+   *  this swaps design.elements ⟷ design.elementsBack in place so every
+   *  bit of code that reads/writes design.elements keeps working — it
+   *  always acts on whichever side is active. The storage layer uses the
+   *  convention that elements=front / elementsBack=back; the swap-on-flip
+   *  helper below mirrors between the two representations. */
+  const [side, setSide] = useState<GarmentSide>("front");
   const [tool, setTool] = useState<Tool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawColor, setDrawColor] = useState("#7c3aed");
@@ -560,12 +568,18 @@ export default function DesignStudio() {
         .single()
         .then(({ data, error }) => {
           if (cancelled || error || !data) return;
+          // Supabase has an elements_back column after migration 007;
+          // older rows may not — treat missing as an empty back side.
+          const dataWithBack = data as typeof data & {
+            elements_back?: DesignElement[] | null;
+          };
           const remote: Design = {
             id: data.id as string,
             name: (data.name as string) ?? "Untitled design",
             garment: data.garment as GarmentType,
             garmentColor: (data.garment_color as string) ?? "#ffffff",
             elements: (data.elements as DesignElement[]) ?? [],
+            elementsBack: dataWithBack.elements_back ?? [],
             createdAt: new Date(data.created_at as string).getTime(),
             updatedAt: new Date(data.updated_at as string).getTime(),
             publishedId: data.id as string,
@@ -655,6 +669,48 @@ export default function DesignStudio() {
     if (!ctm) return { x: 0, y: 0 };
     const t = pt.matrixTransform(ctm.inverse());
     return { x: t.x, y: t.y };
+  }
+
+  /**
+   * Wrap the store's saveDesign so we always write a canonical
+   * {elements=front, elementsBack=back} shape to persistence,
+   * regardless of which side the user is currently editing. Keeps
+   * the rest of the editor code free of side-swap bookkeeping.
+   */
+  const saveDesign = useCallback(
+    (d: Design) => {
+      const canonical: Design =
+        side === "front"
+          ? d
+          : {
+              ...d,
+              elements: d.elementsBack ?? [],
+              elementsBack: d.elements,
+            };
+      storeSaveDesign(canonical);
+    },
+    [side]
+  );
+
+  // ---- side toggle ----
+  /**
+   * Flip the garment between front and back. Swaps design.elements and
+   * design.elementsBack in place so every operation downstream keeps
+   * using `design.elements` for whichever side is currently showing.
+   * Also clears any current selection — element IDs can collide across
+   * sides and keeping the old selection pointed at a hidden element is
+   * confusing.
+   */
+  function flipSide() {
+    pushHistory();
+    const nextSide: GarmentSide = side === "front" ? "back" : "front";
+    setDesign((d) => ({
+      ...d,
+      elements: d.elementsBack ?? [],
+      elementsBack: d.elements,
+    }));
+    setSide(nextSide);
+    setSelectedId(null);
   }
 
   // ---- element mutations ----
@@ -1776,6 +1832,32 @@ export default function DesignStudio() {
         />
       </div>
 
+      {/* Front / Back toggle. Flipping swaps the active element list so
+          the user is drawing on whichever side the garment is showing. */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+          Side
+        </span>
+        <div className="inline-flex rounded-xl bg-white p-0.5 ring-1 ring-[var(--border)]">
+          {(["front", "back"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => {
+                if (s !== side) flipSide();
+              }}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold capitalize transition-colors ${
+                side === s
+                  ? "bg-[var(--primary)] text-white"
+                  : "text-[var(--muted)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Canvas */}
       <div
         className="relative mx-auto w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[var(--border)]"
@@ -1808,13 +1890,13 @@ export default function DesignStudio() {
         >
           <defs>
             <clipPath id={clipId}>
-              <path d={garmentPath(design.garment)} />
+              <path d={garmentPath(design.garment, side)} />
             </clipPath>
           </defs>
 
           {/* Garment base (not clipped) */}
           <path
-            d={garmentPath(design.garment)}
+            d={garmentPath(design.garment, side)}
             fill={design.garmentColor}
             stroke="rgba(0,0,0,0.18)"
             strokeWidth="1.5"
@@ -1849,7 +1931,7 @@ export default function DesignStudio() {
           </g>
 
           {/* Garment details (collar, buttons) drawn on top */}
-          <GarmentDetails type={design.garment} />
+          <GarmentDetails type={design.garment} side={side} />
 
           {/* Selection ring + interactive handles (drawn outside the clip) */}
           {selected && (
@@ -3068,6 +3150,26 @@ function SelectionOverlay({
   );
 }
 
+/** Display labels for each garment — t-shirt / pjs need special
+ *  casing that a plain .toUpperCase() wouldn't give. */
+const GARMENT_LABELS: Record<GarmentType, string> = {
+  tshirt: "T-Shirt",
+  shirt: "Shirt",
+  jacket: "Jacket",
+  pants: "Pants",
+  pjs: "PJs",
+  shorts: "Shorts",
+};
+
+const GARMENT_OPTIONS: readonly GarmentType[] = [
+  "tshirt",
+  "shirt",
+  "jacket",
+  "pants",
+  "pjs",
+  "shorts",
+];
+
 function GarmentPicker({ onPick }: { onPick: (g: GarmentType) => void }) {
   return (
     <div className="space-y-6">
@@ -3080,14 +3182,14 @@ function GarmentPicker({ onPick }: { onPick: (g: GarmentType) => void }) {
           Choose what you&apos;d like to design today.
         </p>
       </header>
-      <div className="grid grid-cols-2 gap-4">
-        {(["tshirt", "shirt"] as const).map((g) => (
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        {GARMENT_OPTIONS.map((g) => (
           <button
             key={g}
             onClick={() => onPick(g)}
             className="group flex flex-col items-center gap-2 rounded-3xl bg-white p-4 ring-1 ring-[var(--border)] transition-all hover:-translate-y-0.5 hover:shadow-md hover:ring-[var(--primary)]"
           >
-            <svg viewBox="0 0 400 500" className="h-48 w-full">
+            <svg viewBox="0 0 400 500" className="h-40 w-full">
               <path
                 d={garmentPath(g)}
                 fill="#ffffff"
@@ -3098,7 +3200,7 @@ function GarmentPicker({ onPick }: { onPick: (g: GarmentType) => void }) {
               <GarmentDetails type={g} />
             </svg>
             <span className="text-sm font-bold uppercase tracking-wider text-[var(--primary)]">
-              {g === "tshirt" ? "T-Shirt" : "Shirt"}
+              {GARMENT_LABELS[g]}
             </span>
           </button>
         ))}

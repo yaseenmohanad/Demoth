@@ -41,22 +41,30 @@ export async function fetchMyDesigns(): Promise<{
   const { data, error } = await supabase
     .from("designs")
     .select(
-      "id, name, garment, garment_color, elements, created_at, updated_at, published"
+      "id, name, garment, garment_color, elements, elements_back, created_at, updated_at, published"
     )
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false });
   if (error) return { designs: [], error: error.message };
-  const designs: Design[] = (data ?? []).map((row) => ({
-    id: row.id as string,
-    name: (row.name as string) ?? "Untitled design",
-    garment: row.garment as GarmentType,
-    garmentColor: (row.garment_color as string) ?? "#ffffff",
-    elements: (row.elements as DesignElement[]) ?? [],
-    createdAt: new Date(row.created_at as string).getTime(),
-    updatedAt: new Date(row.updated_at as string).getTime(),
-    publishedId: row.id as string,
-    isPublished: !!(row.published as boolean),
-  }));
+  const designs: Design[] = (data ?? []).map((row) => {
+    // elements_back only exists after migration 007; older rows read
+    // as null / undefined, which we treat as an empty back side.
+    const rowWithBack = row as typeof row & {
+      elements_back?: DesignElement[] | null;
+    };
+    return {
+      id: row.id as string,
+      name: (row.name as string) ?? "Untitled design",
+      garment: row.garment as GarmentType,
+      garmentColor: (row.garment_color as string) ?? "#ffffff",
+      elements: (row.elements as DesignElement[]) ?? [],
+      elementsBack: rowWithBack.elements_back ?? [],
+      createdAt: new Date(row.created_at as string).getTime(),
+      updatedAt: new Date(row.updated_at as string).getTime(),
+      publishedId: row.id as string,
+      isPublished: !!(row.published as boolean),
+    };
+  });
   return { designs, error: null };
 }
 
@@ -89,6 +97,7 @@ export async function pushDesignToDb(design: Design): Promise<{
     garment: design.garment,
     garment_color: design.garmentColor,
     elements: design.elements,
+    elements_back: design.elementsBack ?? [],
   };
 
   if (design.publishedId) {

@@ -101,6 +101,7 @@ export async function publishDesign(design: Design): Promise<PublishResult> {
     garment: design.garment,
     garment_color: design.garmentColor,
     elements: design.elements,
+    elements_back: design.elementsBack ?? [],
     published: true,
   };
 
@@ -167,7 +168,7 @@ export async function listPublishedDesigns(): Promise<{
     .from("designs")
     .select(
       // FK embed: designs.user_id → profiles.id, aliased as `author`.
-      "id, name, garment, garment_color, elements, created_at, updated_at, author:profiles!user_id(id, name, username, avatar)"
+      "id, name, garment, garment_color, elements, elements_back, created_at, updated_at, author:profiles!user_id(id, name, username, avatar)"
     )
     .eq("published", true)
     .order("updated_at", { ascending: false });

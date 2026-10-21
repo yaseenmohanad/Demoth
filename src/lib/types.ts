@@ -1,4 +1,14 @@
-export type GarmentType = "tshirt" | "shirt";
+export type GarmentType =
+  | "tshirt"
+  | "shirt"
+  | "jacket"
+  | "pants"
+  | "pjs"
+  | "shorts";
+
+/** Which side of the garment is currently being viewed / edited.
+ *  Each design holds separate element lists for front and back. */
+export type GarmentSide = "front" | "back";
 
 export type ShapeVariant =
   // 2D
@@ -92,7 +102,13 @@ export interface Design {
   name: string;
   garment: GarmentType;
   garmentColor: string;
+  /** Elements drawn on the FRONT of the garment. Named `elements`
+   *  (not `elementsFront`) for backwards compatibility with every
+   *  design row written before migration 007 landed. */
   elements: DesignElement[];
+  /** Elements drawn on the BACK of the garment. Optional / defaults
+   *  to [] — old designs lacked a back side and get an empty one. */
+  elementsBack?: DesignElement[];
   createdAt: number;
   updatedAt: number;
   /** Supabase UUID for this design's row in the marketplace `designs`
