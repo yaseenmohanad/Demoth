@@ -28,6 +28,9 @@ export interface MarketplaceListing {
   garment: GarmentType;
   garmentColor: string;
   elements: DesignElement[];
+  /** Elements the publisher drew on the back of the garment, if any.
+   *  Empty for designs published before the back-side feature landed. */
+  elementsBack: DesignElement[];
   createdAt: number;
   updatedAt: number;
   /** Seller / designer info, joined from the `profiles` table. */
@@ -54,6 +57,7 @@ export function listingToDesign(l: MarketplaceListing): Design {
     garment: l.garment,
     garmentColor: l.garmentColor,
     elements: l.elements,
+    elementsBack: l.elementsBack,
     createdAt: l.createdAt,
     updatedAt: l.updatedAt,
     publishedId: l.id,
@@ -187,12 +191,18 @@ export async function listPublishedDesigns(): Promise<{
         avatar: string | null;
       } | null;
       if (!a) return null;
+      // elements_back only exists after migration 007; older rows read
+      // as null / undefined, which we treat as an empty back side.
+      const rowWithBack = row as typeof row & {
+        elements_back?: DesignElement[] | null;
+      };
       return {
         id: row.id as string,
         name: (row.name as string) ?? "Untitled design",
         garment: row.garment as GarmentType,
         garmentColor: (row.garment_color as string) ?? "#ffffff",
         elements: (row.elements as DesignElement[]) ?? [],
+        elementsBack: rowWithBack.elements_back ?? [],
         createdAt: new Date(row.created_at as string).getTime(),
         updatedAt: new Date(row.updated_at as string).getTime(),
         author: {

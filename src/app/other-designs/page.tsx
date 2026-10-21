@@ -141,6 +141,7 @@ export default function OtherDesignsPage() {
                   <DesignPreview
                     design={listingToDesign(listing)}
                     className="h-40 w-full"
+                    animate
                   />
                 </div>
                 <div className="mt-2 flex items-center gap-2 px-1">

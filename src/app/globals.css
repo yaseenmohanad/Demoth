@@ -141,3 +141,35 @@ input[type="number"]::-webkit-inner-spin-button {
     animation: none;
   }
 }
+
+/* Browse card crossfade — stacked front/back layers of a design
+   preview take turns being visible on a 6s loop. The front stays
+   fully opaque for most of the first half, crossfades (10% of the
+   cycle = ~0.6s) to the back, holds, and crossfades back. */
+@keyframes demoth-side-front {
+  0%, 40%  { opacity: 1; }
+  50%, 90% { opacity: 0; }
+  100%     { opacity: 1; }
+}
+@keyframes demoth-side-back {
+  0%, 40%  { opacity: 0; }
+  50%, 90% { opacity: 1; }
+  100%     { opacity: 0; }
+}
+.demoth-side-front {
+  animation: demoth-side-front 6s ease-in-out infinite;
+}
+.demoth-side-back {
+  animation: demoth-side-back 6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .demoth-side-front,
+  .demoth-side-back {
+    animation: none;
+  }
+  /* Reduced-motion fallback — show only the front side; the back
+     layer is hidden entirely rather than frozen half-faded. */
+  .demoth-side-back {
+    opacity: 0;
+  }
+}

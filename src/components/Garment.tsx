@@ -114,36 +114,25 @@ export function GarmentDetails({
       }
       return (
         <g pointerEvents="none">
-          {/* Lapels */}
-          <path d="M 180 75 L 165 240 L 200 155" {...common} />
-          <path d="M 220 75 L 235 240 L 200 155" {...common} />
+          {/* Collar fold — notched lapel that follows the V-neck down
+              to the zipper start. Two short diagonals instead of the
+              earlier big triangles that cluttered the chest. */}
+          <path d="M 155 95 L 200 165 L 245 95" {...common} />
           {/* Zipper center line */}
           <line
             x1="200"
-            y1="155"
+            y1="165"
             x2="200"
             y2="460"
             stroke="rgba(0,0,0,0.3)"
             strokeWidth="1.6"
-            strokeDasharray="3 2"
+            strokeDasharray="4 3"
           />
-          {/* Pockets */}
-          <rect
-            x="118"
-            y="300"
-            width="60"
-            height="38"
-            rx="4"
-            {...faint}
-          />
-          <rect
-            x="222"
-            y="300"
-            width="60"
-            height="38"
-            rx="4"
-            {...faint}
-          />
+          {/* Side pockets at hip height, with a flap accent across the top */}
+          <rect x="120" y="315" width="70" height="55" rx="6" {...faint} />
+          <line x1="124" y1="328" x2="186" y2="328" {...faint} />
+          <rect x="210" y="315" width="70" height="55" rx="6" {...faint} />
+          <line x1="214" y1="328" x2="276" y2="328" {...faint} />
         </g>
       );
 

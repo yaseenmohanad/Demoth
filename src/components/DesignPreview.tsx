@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import type { Design } from "@/lib/types";
+import type { Design, GarmentSide } from "@/lib/types";
 import { garmentPath, GarmentDetails } from "./Garment";
 import { ShapeNode } from "./Shapes";
 import { elementTransform } from "@/lib/element-transform";
@@ -9,18 +9,65 @@ import { elementTransform } from "@/lib/element-transform";
 interface Props {
   design: Design;
   className?: string;
+  /** Which face of the garment to render. Ignored when `animate` is on
+   *  (the component then cycles both). Defaults to "front". */
+  side?: GarmentSide;
+  /** When true, the preview crossfades between front and back on an
+   *  endless loop. Used on Browse so listings show both sides without
+   *  the user flipping anything. */
+  animate?: boolean;
 }
 
-/** A non-interactive SVG render of a design — used for wardrobe/profile thumbnails. */
-export default function DesignPreview({ design, className }: Props) {
+/** A non-interactive SVG render of a design — used for wardrobe/profile
+ *  thumbnails and marketplace cards. */
+export default function DesignPreview({
+  design,
+  className,
+  side = "front",
+  animate,
+}: Props) {
+  if (animate) {
+    // Stack the two sides and let CSS keyframes crossfade them. The
+    // outer wrapper carries the size; each child is absolutely
+    // positioned to fill it so the animation has nothing to layout
+    // around.
+    return (
+      <div className={`relative ${className ?? ""}`}>
+        <SideSvg
+          design={design}
+          side="front"
+          extraClass="absolute inset-0 h-full w-full demoth-side-front"
+        />
+        <SideSvg
+          design={design}
+          side="back"
+          extraClass="absolute inset-0 h-full w-full demoth-side-back"
+        />
+      </div>
+    );
+  }
+  return <SideSvg design={design} side={side} extraClass={className ?? ""} />;
+}
+
+function SideSvg({
+  design,
+  side,
+  extraClass,
+}: {
+  design: Design;
+  side: GarmentSide;
+  extraClass: string;
+}) {
   const clipId = `clip-${useId().replace(/:/g, "")}`;
-  const path = garmentPath(design.garment);
+  const path = garmentPath(design.garment, side);
+  const elements =
+    side === "front" ? design.elements : design.elementsBack ?? [];
 
   return (
     <svg
       viewBox="0 0 400 500"
       preserveAspectRatio="xMidYMid meet"
-      className={className}
+      className={extraClass}
       role="img"
       aria-label={design.name}
     >
@@ -37,7 +84,7 @@ export default function DesignPreview({ design, className }: Props) {
         strokeLinejoin="round"
       />
       <g clipPath={`url(#${clipId})`}>
-        {design.elements.map((el) => {
+        {elements.map((el) => {
           const t = elementTransform(el);
           if (el.type === "text") {
             return (
@@ -102,7 +149,7 @@ export default function DesignPreview({ design, className }: Props) {
           );
         })}
       </g>
-      <GarmentDetails type={design.garment} />
+      <GarmentDetails type={design.garment} side={side} />
     </svg>
   );
 }
