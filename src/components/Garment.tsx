@@ -268,9 +268,9 @@ export function GarmentDetails({
           {/* Front pockets */}
           <path d="M 135 95 Q 155 130 170 150" {...faint} />
           <path d="M 265 95 Q 245 130 230 150" {...faint} />
-          {/* Hem line */}
-          <line x1="130" y1="260" x2="200" y2="260" {...faint} />
-          <line x1="200" y1="260" x2="270" y2="260" {...faint} />
+          {/* Hem line — subtle accent just above the shorts hem */}
+          <line x1="140" y1="298" x2="192" y2="298" {...faint} />
+          <line x1="208" y1="298" x2="260" y2="298" {...faint} />
         </g>
       );
   }
@@ -391,16 +391,20 @@ const JACKET_BACK = [
 ].join(" ");
 
 // Pants: full-length, two legs separated by a central crotch notch.
+// Waistband at the top, hips curve outward, legs taper gently to the
+// ankle. The crotch is a soft dip (Q curve) rather than a sharp point.
 const PANTS_FRONT = [
-  "M 130 65",
-  "L 270 65",
-  "L 275 220",
-  "L 240 465",
-  "L 190 465",
-  "L 200 240",
-  "L 210 465",
-  "L 160 465",
-  "L 125 220",
+  "M 128 72",
+  "L 272 72",
+  "Q 302 135 282 220",
+  "L 250 465",
+  "L 214 465",
+  "L 208 225",
+  "Q 200 215 192 225",
+  "L 186 465",
+  "L 150 465",
+  "L 118 220",
+  "Q 98 135 128 72",
   "Z",
 ].join(" ");
 
@@ -458,16 +462,19 @@ const PJS_BACK = [
   "Z",
 ].join(" ");
 
-// Shorts: like the top half of pants.
+// Shorts: like pants but the legs end mid-thigh.
 const SHORTS_FRONT = [
-  "M 130 65",
-  "L 270 65",
-  "L 275 180",
-  "L 250 275",
-  "L 200 275",
-  "L 200 210",
-  "L 150 275",
-  "L 125 180",
+  "M 128 72",
+  "L 272 72",
+  "Q 302 135 285 215",
+  "L 262 310",
+  "L 218 310",
+  "L 208 220",
+  "Q 200 212 192 220",
+  "L 182 310",
+  "L 138 310",
+  "L 115 215",
+  "Q 98 135 128 72",
   "Z",
 ].join(" ");
 
