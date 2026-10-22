@@ -56,6 +56,14 @@ interface AuthContextValue extends AuthState {
    *  the auth code and the SIGNED_IN event fires here. `next` is the
    *  app-local path to land on after a successful sign-in. */
   signInWithGoogle: (next?: string) => Promise<{ error: string | null }>;
+  /** Send a one-click magic sign-in link to the user's email. Covers
+   *  both sign-up and sign-in — Supabase creates the account on first
+   *  use and signs in on subsequent uses. `next` is the app-local path
+   *  the email's link should land on after the token exchange. */
+  sendMagicLink: (
+    email: string,
+    next?: string
+  ) => Promise<{ error: string | null }>;
   /** End the current session. The account stays saved on this device
    *  in the switcher list so the user can hop back later without
    *  retyping their password. */
@@ -415,6 +423,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const sendMagicLink = useCallback(
+    async (email: string, next?: string): Promise<{ error: string | null }> => {
+      const trimmed = email.trim();
+      // Lightest-possible shape check so a mistyped email doesn't eat
+      // one of the user's three-per-hour Supabase email quota slots.
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        return { error: "That doesn't look like an email address." };
+      }
+      const emailRedirectTo = `${window.location.origin}${next ?? "/"}`;
+      const { error } = await supabase.auth.signInWithOtp({
+        email: trimmed,
+        options: {
+          emailRedirectTo,
+          // Create the account if this is the first time this email
+          // signs in — same button covers sign-up and sign-in.
+          shouldCreateUser: true,
+        },
+      });
+      return { error: error?.message ?? null };
+    },
+    []
+  );
+
   const signOut = useCallback(async () => {
     // The saved-account entry persists — leaving the user able to
     // switch back from the Profile page's account switcher without
@@ -526,6 +557,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signUp,
     signIn,
     signInWithGoogle,
+    sendMagicLink,
     signOut,
     refreshProfile,
     savedAccounts,

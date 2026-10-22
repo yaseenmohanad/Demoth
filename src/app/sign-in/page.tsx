@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import Logo from "@/components/Logo";
-import GoogleButton from "@/components/GoogleButton";
+import MagicLinkForm from "@/components/MagicLinkForm";
 
 export default function SignInPage() {
   return (
@@ -83,11 +83,16 @@ function SignInForm() {
         </p>
       </header>
 
-      <GoogleButton next={next} label="Sign in with Google" />
+      <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--border)]">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+          Email me a link
+        </p>
+        <MagicLinkForm next={next} label="Send me a sign-in link" />
+      </div>
 
       <div className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--muted)]">
         <span className="h-px flex-1 bg-[var(--border)]" />
-        or email
+        or password
         <span className="h-px flex-1 bg-[var(--border)]" />
       </div>
 
