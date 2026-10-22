@@ -51,6 +51,11 @@ interface AuthContextValue extends AuthState {
     username: string,
     password: string
   ) => Promise<{ error: string | null }>;
+  /** Start the Google OAuth redirect. Supabase sends the browser to
+   *  Google's consent screen; on return, the client auto-exchanges
+   *  the auth code and the SIGNED_IN event fires here. `next` is the
+   *  app-local path to land on after a successful sign-in. */
+  signInWithGoogle: (next?: string) => Promise<{ error: string | null }>;
   /** End the current session. The account stays saved on this device
    *  in the switcher list so the user can hop back later without
    *  retyping their password. */
@@ -394,6 +399,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: first.error.message };
   }, []);
 
+  const signInWithGoogle = useCallback(
+    async (next?: string): Promise<{ error: string | null }> => {
+      const redirectTo = `${window.location.origin}${next ?? "/"}`;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo },
+      });
+      // On success this call doesn't resolve a session — the browser is
+      // mid-redirect to Google. We only land in the error branch when
+      // Supabase couldn't even start the handshake (misconfigured
+      // provider, blocked popup on some mobile browsers, etc.).
+      return { error: error?.message ?? null };
+    },
+    []
+  );
+
   const signOut = useCallback(async () => {
     // The saved-account entry persists — leaving the user able to
     // switch back from the Profile page's account switcher without
@@ -504,6 +525,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     signUp,
     signIn,
+    signInWithGoogle,
     signOut,
     refreshProfile,
     savedAccounts,

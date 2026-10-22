@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import Logo from "@/components/Logo";
+import GoogleButton from "@/components/GoogleButton";
 import {
   validatePassword,
   PASSWORD_RULES_HINT,
@@ -129,6 +130,14 @@ function SignUpForm() {
           Pick an email and password to get started.
         </p>
       </header>
+
+      <GoogleButton next={next} label="Sign up with Google" />
+
+      <div className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--muted)]">
+        <span className="h-px flex-1 bg-[var(--border)]" />
+        or email
+        <span className="h-px flex-1 bg-[var(--border)]" />
+      </div>
 
       <form
         onSubmit={handleSubmit}

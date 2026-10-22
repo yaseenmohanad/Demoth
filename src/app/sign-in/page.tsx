@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import Logo from "@/components/Logo";
+import GoogleButton from "@/components/GoogleButton";
 
 export default function SignInPage() {
   return (
@@ -81,6 +82,14 @@ function SignInForm() {
           Sign in to your account.
         </p>
       </header>
+
+      <GoogleButton next={next} label="Sign in with Google" />
+
+      <div className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--muted)]">
+        <span className="h-px flex-1 bg-[var(--border)]" />
+        or email
+        <span className="h-px flex-1 bg-[var(--border)]" />
+      </div>
 
       <form
         onSubmit={handleSubmit}
